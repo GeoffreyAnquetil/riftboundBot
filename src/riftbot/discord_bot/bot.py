@@ -10,6 +10,7 @@ from discord.ext import commands
 from riftbot.bootstrap import Services
 from riftbot.discord_bot.cogs.admin import AdminCog
 from riftbot.discord_bot.cogs.betting import BettingCog
+from riftbot.discord_bot.cogs.dev import DevCog
 from riftbot.discord_bot.cogs.ladder import LadderCog
 from riftbot.discord_bot.common import send_error
 from riftbot.discord_bot.views.result import ConfirmResultButton, DisputeResultButton
@@ -19,7 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 class RiftBot(commands.Bot):
-    def __init__(self, services: Services, *, dev_guild_id: int | None = None) -> None:
+    def __init__(
+        self,
+        services: Services,
+        *,
+        dev_guild_id: int | None = None,
+        dev_commands: bool = False,
+    ) -> None:
         super().__init__(
             command_prefix=commands.when_mentioned,
             intents=discord.Intents.default(),
@@ -30,6 +37,7 @@ class RiftBot(commands.Bot):
         )
         self.services = services
         self._dev_guild_id = dev_guild_id
+        self._dev_commands = dev_commands
         self.tree.error(self._on_app_command_error)
 
     async def setup_hook(self) -> None:
@@ -40,6 +48,9 @@ class RiftBot(commands.Bot):
         await self.add_cog(LadderCog(self.services))
         await self.add_cog(BettingCog(self.services))
         await self.add_cog(AdminCog(self.services))
+        if self._dev_commands:
+            await self.add_cog(DevCog(self.services))
+            logger.warning("Commandes /dev activées : ne pas utiliser en production")
         self.add_dynamic_items(ConfirmResultButton, DisputeResultButton)
 
     async def sync_commands(self) -> None:

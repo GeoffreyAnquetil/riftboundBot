@@ -9,6 +9,11 @@ from discord import app_commands
 
 if TYPE_CHECKING:
     from riftbot.bootstrap import Services
+    from riftbot.domain.ladder.models import Player
+
+# Les vrais identifiants Discord (snowflakes) dépassent 10^16 : en dessous, c'est un faux joueur
+# créé par /dev seed.
+FAKE_ID_LIMIT = 1_000_000
 
 
 class _HasServices(Protocol):
@@ -35,3 +40,14 @@ async def send_error(interaction: discord.Interaction[Any], message: str) -> Non
 
 def truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def is_fake(discord_id: int) -> bool:
+    return discord_id < FAKE_ID_LIMIT
+
+
+def mention(player: Player) -> str:
+    """Mention Discord d'un vrai joueur ; nom en gras pour un faux joueur (pas de ping)."""
+    if is_fake(player.discord_id):
+        return f"**{player.display_name}**"
+    return f"<@{player.discord_id}>"
