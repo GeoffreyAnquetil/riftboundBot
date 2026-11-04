@@ -159,8 +159,15 @@ def profile(data: PlayerProfile, wallet: Wallet) -> discord.Embed:
 # --- Économie -----------------------------------------------------------------------------------
 
 
-def richest(wallets: Sequence[Wallet]) -> discord.Embed:
-    lines = [f"{rank(i)} <@{w.user_id}> · {amount(w.balance)}" for i, w in enumerate(wallets, 1)]
+def richest(wallets: Sequence[Wallet], fake_names: Mapping[int, str]) -> discord.Embed:
+    """``fake_names`` : noms des faux joueurs (/dev), sans compte Discord à mentionner."""
+
+    def holder(user_id: int) -> str:
+        return f"**{fake_names[user_id]}**" if user_id in fake_names else f"<@{user_id}>"
+
+    lines = [
+        f"{rank(i)} {holder(w.user_id)} · {amount(w.balance)}" for i, w in enumerate(wallets, 1)
+    ]
     return discord.Embed(
         title="💎 Les plus riches",
         description=_lines(lines, "Personne n'a encore de portefeuille."),

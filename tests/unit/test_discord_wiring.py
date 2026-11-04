@@ -59,6 +59,25 @@ async def test_all_commands_are_registered(memory_services: Services) -> None:
         cog.auto_confirm.cancel()
 
 
+async def test_dev_commands_are_opt_in(memory_services: Services) -> None:
+    bot = RiftBot(memory_services, dev_commands=True)
+    await bot.register_components()
+    try:
+        dev = next(c for c in bot.tree.get_commands() if c.name == "dev")
+        payload = dev.to_dict(bot.tree)
+        assert {o["name"] for o in payload["options"]} == {
+            "seed",
+            "report-as",
+            "answer-as",
+            "bet-as",
+        }
+        assert payload["default_member_permissions"] is not None
+    finally:
+        cog = bot.get_cog("LadderCog")
+        assert isinstance(cog, LadderCog)
+        cog.auto_confirm.cancel()
+
+
 async def test_result_modal_offers_every_bo3_score(memory_services: Services) -> None:
     ladder = memory_services.ladder
     for discord_id in (1, 2):

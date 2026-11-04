@@ -17,7 +17,11 @@ logger = logging.getLogger("riftbot")
 
 async def run(settings: Settings, token: str) -> None:
     services, engine = build_sql_services(settings)
-    bot = RiftBot(services, dev_guild_id=settings.dev_guild_id)
+    bot = RiftBot(
+        services,
+        dev_guild_id=settings.dev_guild_id,
+        dev_commands=settings.enable_dev_commands,
+    )
     try:
         async with bot:
             await bot.start(token)

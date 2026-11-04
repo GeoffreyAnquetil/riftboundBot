@@ -10,7 +10,7 @@ from discord.ext import commands
 
 from riftbot.bootstrap import Services
 from riftbot.discord_bot.autocomplete import match_choices, winner_choices
-from riftbot.discord_bot.common import guild_id
+from riftbot.discord_bot.common import guild_id, is_fake
 from riftbot.discord_bot.views import embeds
 from riftbot.domain.errors import NotFound
 from riftbot.domain.ladder.models import Side
@@ -64,8 +64,14 @@ class BettingCog(commands.Cog):
 
     @app_commands.command(name="richest", description="Classement des plus riches")
     async def richest(self, interaction: discord.Interaction[Any]) -> None:
-        wallets = await self._betting.richest(guild_id(interaction))
-        await interaction.response.send_message(embed=embeds.richest(wallets))
+        gid = guild_id(interaction)
+        wallets = await self._betting.richest(gid)
+        fake_names = {
+            e.player.discord_id: e.player.display_name
+            for e in await self._ladder.leaderboard(gid)
+            if is_fake(e.player.discord_id)
+        }
+        await interaction.response.send_message(embed=embeds.richest(wallets, fake_names))
 
     @app_commands.command(name="mybets", description="Tes derniers paris")
     async def mybets(self, interaction: discord.Interaction[Any]) -> None:

@@ -14,7 +14,7 @@ from discord.ext import commands
 
 from riftbot.bootstrap import Services
 from riftbot.discord_bot.autocomplete import match_choices, winner_choices
-from riftbot.discord_bot.common import guild_id
+from riftbot.discord_bot.common import guild_id, mention
 from riftbot.discord_bot.views import embeds
 from riftbot.discord_bot.views.result import confirmed_message
 from riftbot.domain.errors import InvalidScore, NotFound
@@ -33,9 +33,7 @@ class AdminCog(commands.GroupCog, group_name="admin", group_description="Gestion
     async def week_open(self, interaction: discord.Interaction[Any]) -> None:
         await interaction.response.defer(thinking=True)
         overview = await self._ladder.open_week(guild_id(interaction))
-        mentions = " ".join(
-            f"<@{p.discord_id}>" for s in overview.matches for p in (s.player1, s.player2)
-        )
+        mentions = " ".join(mention(p) for s in overview.matches for p in (s.player1, s.player2))
         await interaction.followup.send(
             f"📣 La semaine {overview.week.number} est ouverte ! {mentions}",
             embed=embeds.week(overview, {}),

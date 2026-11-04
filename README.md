@@ -75,6 +75,35 @@ uv run riftbot           # applique les migrations puis lance le bot
 docker compose up -d --build   # la base SQLite est stockée dans ./data
 ```
 
+## Tester seul avec de faux joueurs
+
+Un match oppose deux comptes, c'est l'adversaire qui confirme, et on ne parie pas sur son propre
+match. Pour tout dérouler seul, mets `ENABLE_DEV_COMMANDS=true` dans `.env` et relance le bot.
+Le groupe `/dev` apparaît alors, réservé aux admins (**jamais en production**) :
+
+| Commande | Rôle |
+|---|---|
+| `/dev seed <nombre>` | Ajoute des faux joueurs (🤖 Alpha, 🤖 Bravo…) en bas du ladder |
+| `/dev report-as <joueur> <score>` | Déclare le résultat du match d'un faux joueur |
+| `/dev answer-as <joueur> <décision>` | Confirme ou conteste à la place d'un faux joueur |
+| `/dev bet-as <joueur> <match> <vainqueur> <mise>` | Fait parier un faux joueur |
+
+Scénario type :
+
+1. `/register`, puis `/dev seed 5` : tu es #1, suivi de 🤖 Alpha à 🤖 Echo (#2 à #6).
+2. `/admin week-open` : matchs toi vs Alpha, Bravo vs Charlie, Delta vs Echo.
+3. **Paris** : `/bet` sur Bravo vs Charlie, puis `/dev bet-as` avec Alpha sur l'autre joueur.
+   `/matches` affiche la cagnotte et les cotes.
+4. **Confirmation** : `/dev report-as` avec Bravo, puis `/dev answer-as` avec Charlie pour confirmer.
+   Les gains sont versés : vérifie-le avec `/balance`, `/mybets` et `/richest`.
+5. **Boutons** : `/dev report-as` avec Alpha (contre toi). Clique toi-même sur **Confirmer**.
+6. **Litige** : `/dev report-as` avec Delta en « Victoire 2-0 », puis avec Echo en
+   « Victoire 2-1 ». Les déclarations se contredisent : `/admin week-close` est refusé tant que
+   tu n'as pas tranché avec `/admin set-result`.
+7. `/admin week-close` : nouveau classement. `/admin week-open` : semaine 2.
+
+Pour repartir de zéro, arrête le bot et supprime `data/riftbot.db`.
+
 ## Développement
 
 ```bash
