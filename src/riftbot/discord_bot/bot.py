@@ -12,7 +12,7 @@ from riftbot.discord_bot.cogs.admin import AdminCog
 from riftbot.discord_bot.cogs.betting import BettingCog
 from riftbot.discord_bot.cogs.dev import DevCog
 from riftbot.discord_bot.cogs.ladder import LadderCog
-from riftbot.discord_bot.common import send_error
+from riftbot.discord_bot.common import interaction_age, is_expired, send_error
 from riftbot.discord_bot.views.result import ConfirmResultButton, DisputeResultButton
 from riftbot.domain.errors import DomainError
 
@@ -70,11 +70,20 @@ class RiftBot(commands.Bot):
         self, interaction: discord.Interaction[Any], error: app_commands.AppCommandError
     ) -> None:
         original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
-        if isinstance(original, DomainError):
+        name = interaction.command.qualified_name if interaction.command else "?"
+        if is_expired(original):
+            # Répondre est impossible : Discord a déjà abandonné l'interaction.
+            logger.warning(
+                "/%s : interaction expirée, %.1f s après sa création (Discord exige une "
+                "réponse sous 3 s). Latence de la connexion au gateway : %.0f ms.",
+                name,
+                interaction_age(interaction),
+                self.latency * 1000,
+            )
+        elif isinstance(original, DomainError):
             await send_error(interaction, str(original))
         elif isinstance(error, app_commands.CheckFailure):
             await send_error(interaction, "Tu n'as pas la permission d'utiliser cette commande.")
         else:
-            name = interaction.command.qualified_name if interaction.command else "?"
             logger.exception("Erreur dans /%s", name, exc_info=original)
             await send_error(interaction, "Erreur inattendue, réessaie plus tard.")
