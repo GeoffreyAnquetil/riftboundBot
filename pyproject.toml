@@ -1,0 +1,63 @@
+[project]
+name = "riftbot"
+version = "0.1.0"
+description = "Bot Discord de ladder et de paris pour le TCG Riftbound"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "alembic>=1.20.1",
+    "discord-py>=2.5",
+    "pydantic-settings>=2.16.2",
+    "sqlalchemy[asyncio]>=2.0",
+]
+
+[project.scripts]
+riftbot = "riftbot.__main__:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
+    "ruff>=0.17.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/riftbot"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "PTH"]
+ignore = ["RUF001", "RUF002", "RUF003"] # caractères accentués dans les messages FR
+
+[tool.ruff.lint.per-file-ignores]
+# __mapper_args__ / type_annotation_map sont des idiomes SQLAlchemy
+"src/riftbot/infrastructure/sql/models.py" = ["RUF012"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["riftbot.discord_bot.*"]
+# discord.py expose des types parfois imprécis (callbacks, autocomplete)
+disallow_untyped_decorators = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-q"
+filterwarnings = ["ignore:'audioop' is deprecated:DeprecationWarning"]

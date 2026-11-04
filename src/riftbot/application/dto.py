@@ -1,0 +1,94 @@
+"""Objets renvoyés par les services à la couche de présentation (lecture seule)."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from riftbot.domain.economy.models import Bet
+from riftbot.domain.ladder.models import Match, MatchStatus, Player, Side, Week
+
+
+@dataclass(frozen=True)
+class MatchSummary:
+    match: Match
+    player1: Player
+    player2: Player
+
+    def player(self, side: Side) -> Player:
+        return self.player1 if side is Side.ONE else self.player2
+
+    @property
+    def winner(self) -> Player | None:
+        side = self.match.winner_side
+        return None if side is None else self.player(side)
+
+    def opponent_of(self, discord_id: int) -> Player:
+        return self.player2 if self.player1.discord_id == discord_id else self.player1
+
+
+@dataclass(frozen=True)
+class WeekOverview:
+    week: Week
+    matches: list[MatchSummary]
+
+
+@dataclass(frozen=True)
+class LeaderboardEntry:
+    player: Player
+    wins: int
+    losses: int
+
+
+@dataclass(frozen=True)
+class PlayerProfile:
+    player: Player
+    wins: int
+    losses: int
+    best_rank: int
+    recent: list[MatchSummary]
+
+
+@dataclass(frozen=True)
+class ReportOutcome:
+    summary: MatchSummary
+    status: MatchStatus
+
+
+@dataclass(frozen=True)
+class RankChange:
+    player: Player
+    old_rank: int
+    new_rank: int
+
+    @property
+    def delta(self) -> int:
+        """Positif quand le joueur monte."""
+        return self.old_rank - self.new_rank
+
+
+@dataclass(frozen=True)
+class WeekClosing:
+    week: Week
+    ranking: list[RankChange]
+    confirmed: int
+    voided: int
+
+
+@dataclass(frozen=True)
+class Pool:
+    side1: int = 0
+    side2: int = 0
+    bettors: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.side1 + self.side2
+
+    def on(self, side: Side) -> int:
+        return self.side1 if side is Side.ONE else self.side2
+
+
+@dataclass(frozen=True)
+class BetSummary:
+    bet: Bet
+    match: MatchSummary
