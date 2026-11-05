@@ -36,6 +36,14 @@ class InvalidMatchState(DomainError):
     pass
 
 
+class StaleReport(DomainError):
+    """Le résultat affiché dans un message a changé depuis sa création.
+
+    Utilisé par les boutons persistants : sans cette vérification, un clic sur
+    un ancien message pourrait confirmer un score que l'adversaire n'a jamais vu.
+    """
+
+
 class WeekAlreadyOpen(DomainError):
     pass
 

@@ -11,6 +11,7 @@ from riftbot.application.dto import (
     MatchSummary,
     PlayerProfile,
     RankChange,
+    ReportFingerprint,
     ReportOutcome,
     WeekClosing,
     WeekOverview,
@@ -23,6 +24,7 @@ from riftbot.domain.errors import (
     NotEnoughPlayers,
     NotFound,
     NotRegistered,
+    StaleReport,
     UnresolvedDisputes,
     WeekAlreadyOpen,
 )
@@ -267,10 +269,24 @@ class LadderService:
             await self._publish_confirmed([match])
         return ReportOutcome(summary, status)
 
-    async def confirm_result(self, guild_id: int, match_id: int, discord_id: int) -> MatchSummary:
+    async def confirm_result(
+        self,
+        guild_id: int,
+        match_id: int,
+        discord_id: int,
+        *,
+        expected: ReportFingerprint | None = None,
+    ) -> MatchSummary:
+        """Confirme le résultat courant.
+
+        ``expected`` vient du ``custom_id`` d'un bouton : s'il ne correspond plus
+        à la déclaration courante, on refuse le clic. C'est la protection contre
+        un vieux bouton « Confirmer » qui validerait un score corrigé depuis.
+        """
         async with self._uow() as uow:
             player = await self._require_player(uow, guild_id, discord_id)
             match = await require_match(uow, guild_id, match_id)
+            self._require_current_report(match, expected)
             match.confirm(player.pk, self._clock.now())
             await uow.matches.update(match)
             summary = (await summarize(uow, [match]))[0]
@@ -278,10 +294,20 @@ class LadderService:
         await self._publish_confirmed([match])
         return summary
 
-    async def dispute_result(self, guild_id: int, match_id: int, discord_id: int) -> MatchSummary:
+    async def dispute_result(
+        self,
+        guild_id: int,
+        match_id: int,
+        discord_id: int,
+        *,
+        expected: ReportFingerprint | None = None,
+    ) -> MatchSummary:
         async with self._uow() as uow:
             player = await self._require_player(uow, guild_id, discord_id)
             match = await require_match(uow, guild_id, match_id)
+            # Même contrôle que pour la confirmation : un bouton obsolète ne
+            # doit pas contester silencieusement une nouvelle déclaration.
+            self._require_current_report(match, expected)
             match.dispute(player.pk)
             await uow.matches.update(match)
             summary = (await summarize(uow, [match]))[0]
@@ -325,6 +351,22 @@ class LadderService:
             side = match.winner_side
             if side is not None:
                 await self._events.publish(MatchConfirmed(match.guild_id, match.pk, side))
+
+    @staticmethod
+    def _require_current_report(match: Match, expected: ReportFingerprint | None) -> None:
+        """Refuse un bouton créé pour une autre déclaration que la courante.
+
+        ``expected`` est ``None`` pour les appels internes (tests, outils) qui
+        n'ont pas de bouton à vérifier.
+        """
+        if expected is None:
+            return
+        current = ReportFingerprint.of(match)
+        if current != expected:
+            raise StaleReport(
+                "Le résultat déclaré a changé depuis l'affichage de ce message. "
+                "Utilise le message le plus récent pour confirmer ou contester."
+            )
 
     @staticmethod
     async def _require_player(uow: UnitOfWork, guild_id: int, discord_id: int) -> Player:

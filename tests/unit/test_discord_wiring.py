@@ -89,4 +89,15 @@ async def test_result_modal_offers_every_bo3_score(memory_services: Services) ->
 
     assert modal.title == "Résultat contre joueur2"
     assert [o.value for o in modal.score.options] == ["2-0", "2-1", "1-2", "0-2"]
-    assert len(confirmation_view(summary.match.pk).children) == 2
+
+    # Les boutons n'existent qu'après une déclaration : ils embarquent le score
+    # pour qu'un ancien message ne puisse pas confirmer une correction.
+    await ladder.report_result(GUILD, summary.match.pk, 1, 2, 0)
+    reported = (await ladder.get_match(GUILD, summary.match.pk)).match
+    view = confirmation_view(reported)
+    assert len(view.children) == 2
+    # ``children`` est typé comme des Item génériques : on lit le bouton
+    # sous-jacent via getattr pour garder mypy strict content.
+    custom_ids = [getattr(getattr(item, "item", None), "custom_id", "") for item in view.children]
+    assert all(str(reported.pk) in custom_id for custom_id in custom_ids)
+    assert all("2:0" in custom_id for custom_id in custom_ids)

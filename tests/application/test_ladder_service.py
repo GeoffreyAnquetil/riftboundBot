@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 
+from riftbot.application.dto import ReportFingerprint
 from riftbot.application.ladder_service import LadderService
 from riftbot.bootstrap import Services
 from riftbot.domain.errors import (
@@ -12,6 +13,7 @@ from riftbot.domain.errors import (
     NotAllowed,
     NotEnoughPlayers,
     NotRegistered,
+    StaleReport,
     UnresolvedDisputes,
     WeekAlreadyOpen,
 )
@@ -170,6 +172,28 @@ async def test_remove_player_voids_match_and_compacts_ranks(services: Services) 
 
     await ladder.register(GUILD, ALICE, "alice")
     assert await ranking(ladder) == [BOB, CAROL, ALICE]
+
+
+async def test_stale_confirmation_is_rejected(services: Services) -> None:
+    """Un bouton créé pour l'ancien score ne doit pas valider le nouveau."""
+    ladder = services.ladder
+    await register_all(ladder, ALICE, BOB)
+    match_id = (await ladder.open_week(GUILD)).matches[0].match.pk
+
+    await ladder.report_result(GUILD, match_id, ALICE, 2, 0)
+    old = ReportFingerprint.of((await ladder.get_match(GUILD, match_id)).match)
+    assert old is not None
+
+    # Alice corrige son score après l'envoi du message contenant les boutons.
+    await ladder.report_result(GUILD, match_id, ALICE, 2, 1)
+
+    with pytest.raises(StaleReport):
+        await ladder.confirm_result(GUILD, match_id, BOB, expected=old)
+
+    current = ReportFingerprint.of((await ladder.get_match(GUILD, match_id)).match)
+    assert current is not None
+    summary = await ladder.confirm_result(GUILD, match_id, BOB, expected=current)
+    assert summary.match.status is MatchStatus.CONFIRMED
 
 
 async def test_profile(services: Services) -> None:

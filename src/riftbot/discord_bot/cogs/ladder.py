@@ -69,6 +69,9 @@ class LadderCog(commands.Cog):
         await interaction.response.send_message(embed=embeds.week(overview, pools))
 
     @app_commands.command(name="myresult", description="Déclarer le résultat de ton match")
+    # Un délai entre deux ouvertures du formulaire limite les corrections en
+    # rafale : chaque soumission crée un message public et de nouveaux boutons.
+    @app_commands.checks.cooldown(1, 5.0, key=lambda interaction: interaction.user.id)
     async def myresult(self, interaction: discord.Interaction[Any]) -> None:
         summary = await self._ladder.current_match(guild_id(interaction), interaction.user.id)
         if not summary.match.accepts_reports:

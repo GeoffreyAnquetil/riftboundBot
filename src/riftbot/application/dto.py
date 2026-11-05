@@ -27,6 +27,31 @@ class MatchSummary:
 
 
 @dataclass(frozen=True)
+class ReportFingerprint:
+    """Identité d'une déclaration de résultat, gravée dans les boutons.
+
+    Les boutons persistants ne peuvent pas stocker d'objet : on met ces trois
+    valeurs dans leur ``custom_id``. Au clic, on refuse d'agir si la déclaration
+    courante ne correspond plus, ce qui évite de confirmer un score obsolète.
+    """
+
+    reported_by: int
+    score1: int
+    score2: int
+
+    @classmethod
+    def of(cls, match: Match) -> ReportFingerprint | None:
+        """Empreinte de la déclaration courante, ou ``None`` si aucune."""
+        if match.reported_by is None or match.score1 is None or match.score2 is None:
+            return None
+        return cls(
+            reported_by=match.reported_by,
+            score1=match.score1,
+            score2=match.score2,
+        )
+
+
+@dataclass(frozen=True)
 class WeekOverview:
     week: Week
     matches: list[MatchSummary]

@@ -23,4 +23,8 @@ USER bot
 ENV DATABASE_URL=sqlite+aiosqlite:////app/data/riftbot.db
 VOLUME ["/app/data"]
 
+# SIGINT plutôt que SIGTERM : Python reçoit KeyboardInterrupt, __main__ peut
+# fermer proprement la gateway Discord et disposer le moteur SQL.
+STOPSIGNAL SIGINT
+
 CMD ["/app/.venv/bin/riftbot"]

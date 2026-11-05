@@ -75,6 +75,23 @@ uv run riftbot           # applique les migrations puis lance le bot
 docker compose up -d --build   # la base SQLite est stockée dans ./data
 ```
 
+### Redémarrages et limites Discord
+
+Le conteneur utilise `restart: "on-failure:5"` : après cinq échecs consécutifs,
+Docker s'arrête au lieu de boucler indéfiniment. En complément, le bot refuse de
+contacter Discord après `STARTUP_MAX_ATTEMPTS` démarrages en
+`STARTUP_WINDOW_SECONDS` secondes (5 en 600 s par défaut) et quitte avec le code
+`78`. Cela évite qu'une erreur permanente (token invalide, scope manquant,
+serveur de dev introuvable, base inaccessible) ne se transforme en flux de
+connexions et en blocage Cloudflare/IP.
+
+La synchronisation des commandes est ignorée quand leur empreinte n'a pas changé
+(`data/command_sync.sha256`). Après une suppression manuelle des commandes dans
+Discord, lancer une fois avec `FORCE_COMMAND_SYNC=true`.
+
+Après un redémarrage de l'hôte, relancer explicitement `docker compose up -d`
+(ou superviser le conteneur avec systemd).
+
 ## Tester seul avec de faux joueurs
 
 Un match oppose deux comptes, c'est l'adversaire qui confirme, et on ne parie pas sur son propre

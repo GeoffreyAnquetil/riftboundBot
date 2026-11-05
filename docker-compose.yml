@@ -1,9 +1,24 @@
 services:
   bot:
     build: .
-    restart: unless-stopped
+    # Ne pas utiliser "unless-stopped" ici : un token invalide, une
+    # synchronisation de commandes refusée ou une base inaccessible ferait
+    # redémarrer le conteneur indéfiniment, donc reconnecter le bot à Discord
+    # en boucle. "on-failure:5" borne les tentatives ; Docker s'arrête ensuite.
+    restart: "on-failure:5"
+    # Laisse au bot le temps de fermer la gateway et de disposer le moteur SQL.
+    stop_grace_period: 30s
+    # Petit init pour propager les signaux et éviter les processus zombies.
+    init: true
     env_file: .env
     environment:
       DATABASE_URL: sqlite+aiosqlite:////app/data/riftbot.db
     volumes:
       - ./data:/app/data
+    # Rotation des logs : évite de saturer le disque si Discord renvoie des
+    # erreurs pendant une longue période.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
