@@ -20,11 +20,14 @@ EXPECTED_COMMANDS = {
     "matches",
     "myresult",
     "profile",
+    "admin",
+}
+
+BETTING_COMMANDS = {
     "bet",
     "balance",
     "richest",
     "mybets",
-    "admin",
 }
 
 
@@ -59,6 +62,18 @@ async def test_all_commands_are_registered(memory_services: Services) -> None:
         cog.auto_confirm.cancel()
 
 
+async def test_betting_commands_are_opt_in(memory_services: Services) -> None:
+    bot = RiftBot(memory_services, enable_betting=True)
+    await bot.register_components()
+    try:
+        commands = {c.name for c in bot.tree.get_commands()}
+        assert commands == EXPECTED_COMMANDS | BETTING_COMMANDS
+    finally:
+        cog = bot.get_cog("LadderCog")
+        assert isinstance(cog, LadderCog)
+        cog.auto_confirm.cancel()
+
+
 async def test_dev_commands_are_opt_in(memory_services: Services) -> None:
     bot = RiftBot(memory_services, dev_commands=True)
     await bot.register_components()
@@ -69,7 +84,7 @@ async def test_dev_commands_are_opt_in(memory_services: Services) -> None:
             "seed",
             "report-as",
             "answer-as",
-            "bet-as",
+            "simulate",
         }
         assert payload["default_member_permissions"] is not None
     finally:

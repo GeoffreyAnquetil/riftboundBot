@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 class LadderCog(commands.Cog):
     def __init__(self, services: Services) -> None:
         self._ladder = services.ladder
-        self._betting = services.betting
 
     async def cog_load(self) -> None:
         self.auto_confirm.start()
@@ -46,13 +45,34 @@ class LadderCog(commands.Cog):
 
     @app_commands.command(name="register", description="Rejoindre le ladder")
     async def register(self, interaction: discord.Interaction[Any]) -> None:
-        player = await self._ladder.register(
+        registration = await self._ladder.register(
             guild_id(interaction), interaction.user.id, interaction.user.display_name
         )
-        await interaction.response.send_message(
-            f"Bienvenue dans le ladder, {interaction.user.mention} ! "
-            f"Tu démarres à la place **#{player.rank}**."
-        )
+        player = registration.player
+        placement = player.rated_matches < self._ladder.placement_matches
+        if placement:
+            intro = (
+                f"Bienvenue dans le ladder, {interaction.user.mention} ! "
+                f"Tu commences par **{self._ladder.placement_matches} matchs de placement** "
+                f"({player.rated_matches} déjà effectué(s))."
+            )
+        else:
+            intro = (
+                f"Bon retour, {interaction.user.mention} ! Tu es **#{player.rank}** "
+                f"avec une note de **{player.rating:.0f} ±{player.rating_deviation:.0f}**."
+            )
+        if registration.match is not None:
+            opponent = registration.match.opponent_of(player.discord_id)
+            detail = (
+                f"\n⚔️ Ton match de la semaine : **{opponent.display_name}** "
+                f"(match #{registration.match.match.pk}). Utilise `/myresult` après la partie."
+            )
+        else:
+            detail = (
+                "\nTu seras inclus dès qu'un adversaire libre sera disponible cette semaine, "
+                "sinon à l'ouverture de la semaine suivante."
+            )
+        await interaction.response.send_message(intro + detail)
 
     @app_commands.command(name="leaderboard", description="Classement actuel du ladder")
     async def leaderboard(self, interaction: discord.Interaction[Any]) -> None:
@@ -65,8 +85,7 @@ class LadderCog(commands.Cog):
         if overview is None:
             await send_error(interaction, "Aucune semaine n'a encore été ouverte.")
             return
-        pools = await self._betting.pools([s.match.pk for s in overview.matches])
-        await interaction.response.send_message(embed=embeds.week(overview, pools))
+        await interaction.response.send_message(embed=embeds.week(overview))
 
     @app_commands.command(name="myresult", description="Déclarer le résultat de ton match")
     # Un délai entre deux ouvertures du formulaire limite les corrections en
@@ -95,5 +114,4 @@ class LadderCog(commands.Cog):
                 raise
             await send_error(interaction, f"{target.display_name} ne fait pas partie du ladder.")
             return
-        wallet = await self._betting.balance(gid, target.id)
-        await interaction.response.send_message(embed=embeds.profile(data, wallet))
+        await interaction.response.send_message(embed=embeds.profile(data))

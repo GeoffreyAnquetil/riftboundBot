@@ -27,20 +27,25 @@ class AdminCog(commands.GroupCog, group_name="admin", group_description="Gestion
     def __init__(self, services: Services) -> None:
         super().__init__()
         self._ladder = services.ladder
-        self._betting = services.betting
 
-    @app_commands.command(name="week-open", description="Ouvre une semaine et génère les matchs")
+    @app_commands.command(
+        name="week-open",
+        description="Ouvre une semaine, apparie les joueurs et publie les matchs",
+    )
     async def week_open(self, interaction: discord.Interaction[Any]) -> None:
         await interaction.response.defer(thinking=True)
         overview = await self._ladder.open_week(guild_id(interaction))
-        mentions = " ".join(mention(p) for s in overview.matches for p in (s.player1, s.player2))
+        players = [p for s in overview.matches for p in (s.player1, s.player2)]
+        if overview.bye is not None:
+            players.append(overview.bye)
+        mentions = " ".join(mention(p) for p in players)
         await interaction.followup.send(
             f"📣 La semaine {overview.week.number} est ouverte ! {mentions}",
-            embed=embeds.week(overview, {}),
+            embed=embeds.week(overview),
         )
 
     @app_commands.command(
-        name="week-close", description="Clôture la semaine, met à jour le classement"
+        name="week-close", description="Clôture la semaine et met à jour les notes"
     )
     async def week_close(self, interaction: discord.Interaction[Any]) -> None:
         await interaction.response.defer(thinking=True)
@@ -94,5 +99,5 @@ class AdminCog(commands.GroupCog, group_name="admin", group_description="Gestion
         player = await self._ladder.remove_player(guild_id(interaction), member.id)
         await interaction.response.send_message(
             f"{player.display_name} a été retiré du ladder. "
-            "Son match en cours est annulé et les paris associés remboursés."
+            "Son match en cours est annulé et son adversaire est réapparié si possible."
         )

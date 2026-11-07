@@ -34,6 +34,20 @@ class Settings(BaseSettings):
 
     best_of: int = 3
     auto_confirm_hours: int = 24
+
+    # --- Ladder noté ----------------------------------------------------------------------------
+    # Nombre de matchs de placement avant d'apparaître dans le classement principal.
+    placement_matches: int = 4
+    # Fenêtre de non-revanche : préférence forte, puis contrainte minimale.
+    rematch_preferred_weeks: int = 4
+    rematch_hard_weeks: int = 2
+    # Nombre de semaines sans match avant le badge « inactif ».
+    inactive_after_weeks: int = 3
+
+    # --- Économie ------------------------------------------------------------------------------
+    # Les paris ne font pas partie de la V1. Le code reste disponible pour une version
+    # ultérieure ; les commandes et l'affichage ne sont activés que si ce drapeau est vrai.
+    enable_betting: bool = False
     starting_balance: int = 1000
 
     log_level: str = "INFO"

@@ -9,7 +9,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
@@ -55,6 +65,16 @@ class PlayerRow(Base):
     registered_at: Mapped[datetime]
     active: Mapped[bool] = mapped_column(default=True)
 
+    # Note Glicko-2. Les valeurs par défaut sont aussi côté serveur pour que la migration
+    # puisse ajouter les colonnes à une base existante sans réécrire les lignes.
+    rating: Mapped[float] = mapped_column(Float, default=1500.0, server_default="1500")
+    rating_deviation: Mapped[float] = mapped_column(Float, default=350.0, server_default="350")
+    rating_volatility: Mapped[float] = mapped_column(Float, default=0.06, server_default="0.06")
+    rated_matches: Mapped[int] = mapped_column(default=0, server_default="0")
+    inactive_weeks: Mapped[int] = mapped_column(default=0, server_default="0")
+    byes: Mapped[int] = mapped_column(default=0, server_default="0")
+    last_match_at: Mapped[datetime | None]
+
 
 class WeekRow(Base):
     __tablename__ = "weeks"
@@ -83,6 +103,7 @@ class MatchRow(Base):
     reported_by: Mapped[int | None] = mapped_column(ForeignKey("players.id"))
     reported_at: Mapped[datetime | None]
     resolved_at: Mapped[datetime | None]
+    rated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     version: Mapped[int] = mapped_column(default=1)
 
     # Verrouillage optimiste : deux confirmations simultanées ne peuvent pas s'écraser.

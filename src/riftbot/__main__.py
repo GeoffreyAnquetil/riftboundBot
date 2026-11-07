@@ -56,6 +56,7 @@ async def run(settings: Settings, token: str) -> None:
         services,
         dev_guild_id=settings.dev_guild_id,
         dev_commands=settings.enable_dev_commands,
+        enable_betting=settings.enable_betting,
         sync_cache=settings.command_sync_cache,
         force_sync=settings.force_command_sync,
     )

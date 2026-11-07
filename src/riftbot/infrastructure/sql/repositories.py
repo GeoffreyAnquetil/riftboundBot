@@ -56,6 +56,13 @@ def _player(row: PlayerRow) -> Player:
         rank=row.rank,
         registered_at=row.registered_at,
         active=row.active,
+        rating=row.rating,
+        rating_deviation=row.rating_deviation,
+        rating_volatility=row.rating_volatility,
+        rated_matches=row.rated_matches,
+        inactive_weeks=row.inactive_weeks,
+        byes=row.byes,
+        last_match_at=row.last_match_at,
     )
 
 
@@ -71,6 +78,13 @@ class SqlPlayerRepository:
             rank=player.rank,
             registered_at=player.registered_at,
             active=player.active,
+            rating=player.rating,
+            rating_deviation=player.rating_deviation,
+            rating_volatility=player.rating_volatility,
+            rated_matches=player.rated_matches,
+            inactive_weeks=player.inactive_weeks,
+            byes=player.byes,
+            last_match_at=player.last_match_at,
         )
         self._s.add(row)
         await flush(self._s)
@@ -107,6 +121,13 @@ class SqlPlayerRepository:
         row.display_name = player.display_name
         row.rank = player.rank
         row.active = player.active
+        row.rating = player.rating
+        row.rating_deviation = player.rating_deviation
+        row.rating_volatility = player.rating_volatility
+        row.rated_matches = player.rated_matches
+        row.inactive_weeks = player.inactive_weeks
+        row.byes = player.byes
+        row.last_match_at = player.last_match_at
         await flush(self._s)
 
 
@@ -178,6 +199,7 @@ def _match(row: MatchRow) -> Match:
         reported_by=row.reported_by,
         reported_at=row.reported_at,
         resolved_at=row.resolved_at,
+        rated=row.rated,
     )
 
 
@@ -197,6 +219,7 @@ class SqlMatchRepository:
             reported_by=match.reported_by,
             reported_at=match.reported_at,
             resolved_at=match.resolved_at,
+            rated=match.rated,
         )
         self._s.add(row)
         await flush(self._s)
@@ -230,6 +253,7 @@ class SqlMatchRepository:
         row.reported_by = match.reported_by
         row.reported_at = match.reported_at
         row.resolved_at = match.resolved_at
+        row.rated = match.rated
         await flush(self._s)
 
     async def _list(self, *criteria: ColumnElement[bool]) -> list[Match]:

@@ -9,7 +9,7 @@ from riftbot.domain.errors import InvalidMatchState, InvalidScore, NotAllowed
 
 
 class Side(IntEnum):
-    """Côté d'un match : ONE est le joueur le mieux classé au moment de l'appariement."""
+    """Côté d'un match : ONE est le joueur le mieux noté au moment de l'appariement."""
 
     ONE = 1
     TWO = 2
@@ -51,6 +51,18 @@ class Player(Entity):
     rank: int
     registered_at: datetime
     active: bool = True
+    # --- Note Glicko-2 ---------------------------------------------------------------------
+    rating: float = 1500.0
+    rating_deviation: float = 350.0
+    rating_volatility: float = 0.06
+    # Nombre de matchs notés depuis l'inscription. En dessous du seuil de placement, le
+    # joueur n'est pas encore classé.
+    rated_matches: int = 0
+    # Semaines consécutives sans match confirmé : sert au badge « inactif ».
+    inactive_weeks: int = 0
+    # Nombre de semaines où le joueur a été exempt : sert à répartir les exempts équitablement.
+    byes: int = 0
+    last_match_at: datetime | None = None
 
 
 class WeekStatus(StrEnum):
@@ -106,6 +118,8 @@ class Match(Entity):
     reported_by: int | None = None
     reported_at: datetime | None = None
     resolved_at: datetime | None = None
+    # Vrai une fois que la note Glicko-2 a été appliquée (à la clôture de la semaine).
+    rated: bool = False
 
     # --- Lecture -----------------------------------------------------------------------------
 
@@ -232,8 +246,8 @@ class Match(Entity):
 class RankingSnapshot(Entity):
     """Position d'un joueur à l'ouverture d'une semaine, celle qui a servi aux appariements.
 
-    Le rang ne change qu'à la clôture (ou au retrait d'un joueur) : ces photos et le rang actuel
-    suffisent à retracer tout l'historique.
+    Le rang est recalculé à la clôture, à l'inscription et au retrait : ces photos et le rang
+    actuel suffisent à retracer tout l'historique.
     """
 
     week_id: int

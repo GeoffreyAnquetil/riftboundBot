@@ -29,6 +29,7 @@ class RiftBot(commands.Bot):
         *,
         dev_guild_id: int | None = None,
         dev_commands: bool = False,
+        enable_betting: bool = False,
         sync_cache: Path | None = None,
         force_sync: bool = False,
     ) -> None:
@@ -43,6 +44,7 @@ class RiftBot(commands.Bot):
         self.services = services
         self._dev_guild_id = dev_guild_id
         self._dev_commands = dev_commands
+        self._enable_betting = enable_betting
         # Empreinte des commandes déjà envoyées à Discord. Elle évite de refaire
         # un appel d'écriture (enregistrement des slash commands) à chaque
         # redémarrage, et donc d'alimenter une éventuelle boucle de crash.
@@ -56,7 +58,8 @@ class RiftBot(commands.Bot):
 
     async def register_components(self) -> None:
         await self.add_cog(LadderCog(self.services))
-        await self.add_cog(BettingCog(self.services))
+        if self._enable_betting:
+            await self.add_cog(BettingCog(self.services))
         await self.add_cog(AdminCog(self.services))
         if self._dev_commands:
             await self.add_cog(DevCog(self.services))

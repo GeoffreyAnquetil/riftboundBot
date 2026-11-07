@@ -1,16 +1,26 @@
-"""Cas d'usage du ladder : inscription, semaines, résultats, classement."""
+"""Cas d'usage du ladder : inscription, semaines, résultats, classement.
+
+Le ladder se joue une fois par semaine. Chaque semaine, un appariement évite les revanches
+récentes puis, à la clôture, les notes Glicko-2 sont mises à jour en une seule passe. Les
+joueurs peuvent s'inscrire à tout moment : s'ils arrivent pendant une semaine ouverte, le
+service tente de leur trouver un adversaire encore libre (sans jamais dépasser un match par
+semaine).
+"""
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
-from collections.abc import Sequence
-from datetime import timedelta
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 
 from riftbot.application.dto import (
     LeaderboardEntry,
     MatchSummary,
     PlayerProfile,
     RankChange,
+    Registration,
     ReportFingerprint,
     ReportOutcome,
     WeekClosing,
@@ -20,6 +30,7 @@ from riftbot.application.ports import Clock, EventBus, UnitOfWork, UnitOfWorkFac
 from riftbot.application.queries import require_match, summarize
 from riftbot.domain.errors import (
     AlreadyRegistered,
+    InvalidMatchState,
     NoOpenWeek,
     NotEnoughPlayers,
     NotFound,
@@ -37,7 +48,13 @@ from riftbot.domain.ladder.models import (
     RankingSnapshot,
     Week,
 )
-from riftbot.domain.ladder.rules import LadderRule, Outcome
+from riftbot.domain.ladder.pairing import (
+    PairingCandidate,
+    PairKey,
+    pair_key,
+    pair_week,
+)
+from riftbot.domain.ladder.rating import Rating, update_match
 
 RECENT_MATCHES = 5
 
@@ -46,32 +63,60 @@ class LadderService:
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
-        rule: LadderRule,
         clock: Clock,
         events: EventBus,
         match_format: MatchFormat | None = None,
         auto_confirm_after: timedelta = timedelta(hours=24),
+        *,
+        placement_matches: int = 4,
+        rematch_preferred_weeks: int = 4,
+        rematch_hard_weeks: int = 2,
+        inactive_after_weeks: int = 3,
     ) -> None:
         self._uow = uow_factory
-        self._rule = rule
         self._clock = clock
         self._events = events
         self._format = match_format or MatchFormat()
         self._auto_confirm_after = auto_confirm_after
+        self._placement_matches = placement_matches
+        self._rematch_preferred_weeks = rematch_preferred_weeks
+        self._rematch_hard_weeks = rematch_hard_weeks
+        self._inactive_after_weeks = inactive_after_weeks
+        # Sérialise les opérations qui créent ou clôturent des matchs. Le bot est un
+        # processus unique, mais deux interactions Discord peuvent arriver en parallèle et
+        # tenter de créer un second match pour le même joueur.
+        self._locks: dict[int, asyncio.Lock] = {}
 
     @property
     def match_format(self) -> MatchFormat:
         return self._format
 
+    @property
+    def placement_matches(self) -> int:
+        return self._placement_matches
+
+    @property
+    def rematch_preferred_weeks(self) -> int:
+        return self._rematch_preferred_weeks
+
+    @property
+    def rematch_hard_weeks(self) -> int:
+        return self._rematch_hard_weeks
+
+    @property
+    def inactive_after_weeks(self) -> int:
+        return self._inactive_after_weeks
+
     # --- Joueurs -----------------------------------------------------------------------------
 
-    async def register(self, guild_id: int, discord_id: int, display_name: str) -> Player:
-        """Ajoute un joueur en bas du classement (ou réactive un joueur retiré)."""
-        async with self._uow() as uow:
+    async def register(self, guild_id: int, discord_id: int, display_name: str) -> Registration:
+        """Ajoute un joueur (ou réactive un ancien) et tente un match dans la semaine ouverte."""
+        async with self._guard(guild_id), self._uow() as uow:
             existing = await uow.players.get_by_discord_id(guild_id, discord_id)
             if existing is not None and existing.active:
                 raise AlreadyRegistered(f"Tu fais déjà partie du ladder (#{existing.rank}).")
 
+            reactivated = existing is not None
             rank = len(await uow.players.list_active(guild_id)) + 1
             if existing is None:
                 player = await uow.players.add(
@@ -84,15 +129,35 @@ class LadderService:
                     )
                 )
             else:
-                existing.active, existing.rank, existing.display_name = True, rank, display_name
+                # On conserve la note acquise : seul le temps d'absence augmente l'incertitude.
+                if existing.inactive_weeks:
+                    inflated = self._rating(existing).inflate(existing.inactive_weeks)
+                    existing.rating_deviation = inflated.deviation
+                existing.active = True
+                existing.rank = rank
+                existing.display_name = display_name
+                existing.inactive_weeks = 0
                 await uow.players.update(existing)
                 player = existing
+
+            players = await uow.players.list_active(guild_id)
+            await self._assign_ranks(uow, players)
+
+            match: MatchSummary | None = None
+            week = await uow.weeks.get_open(guild_id)
+            if week is not None:
+                for summary in await self._pair_unmatched(uow, guild_id, week):
+                    if summary.match.involves(player.pk):
+                        match = summary
+                        break
             await uow.commit()
-        return player
+            refreshed = await uow.players.get(player.pk)
+            player = refreshed or player
+        return Registration(player=player, match=match, reactivated=reactivated)
 
     async def remove_player(self, guild_id: int, discord_id: int) -> Player:
-        """Retire un joueur : son match en cours est annulé et le classement est resserré."""
-        async with self._uow() as uow:
+        """Retire un joueur, annule son match en cours et réapparie son adversaire si possible."""
+        async with self._guard(guild_id), self._uow() as uow:
             player = await self._require_player(uow, guild_id, discord_id)
             player.active = False
             await uow.players.update(player)
@@ -105,11 +170,11 @@ class LadderService:
                         match.void(self._clock.now())
                         await uow.matches.update(match)
                         voided.append(match)
+                # L'adversaire est redevenu libre : on lui cherche un match s'il en existe un.
+                await self._pair_unmatched(uow, guild_id, week)
 
-            for rank, other in enumerate(await uow.players.list_active(guild_id), start=1):
-                if other.rank != rank:
-                    other.rank = rank
-                    await uow.players.update(other)
+            players = await uow.players.list_active(guild_id)
+            await self._assign_ranks(uow, players)
             await uow.commit()
 
         for match in voided:
@@ -121,7 +186,17 @@ class LadderService:
             players = await uow.players.list_active(guild_id)
             confirmed = await uow.matches.list_for_guild(guild_id, MatchStatus.CONFIRMED)
         wins, losses = _records(confirmed)
-        return [LeaderboardEntry(p, wins[p.pk], losses[p.pk]) for p in players]
+        return [
+            LeaderboardEntry(
+                player=p,
+                wins=wins[p.pk],
+                losses=losses[p.pk],
+                provisional=p.rated_matches < self._placement_matches,
+                inactive=p.inactive_weeks >= self._inactive_after_weeks,
+                placement_matches=self._placement_matches,
+            )
+            for p in players
+        ]
 
     async def profile(self, guild_id: int, discord_id: int) -> PlayerProfile:
         async with self._uow() as uow:
@@ -136,13 +211,22 @@ class LadderService:
             recent = await summarize(uow, confirmed[:RECENT_MATCHES])
         wins, losses = _records(confirmed)
         best_rank = min([player.rank, *(s.rank for s in snapshots)])
-        return PlayerProfile(player, wins[player.pk], losses[player.pk], best_rank, recent)
+        return PlayerProfile(
+            player=player,
+            wins=wins[player.pk],
+            losses=losses[player.pk],
+            best_rank=best_rank,
+            recent=recent,
+            provisional=player.rated_matches < self._placement_matches,
+            inactive=player.inactive_weeks >= self._inactive_after_weeks,
+            placement_matches=self._placement_matches,
+        )
 
     # --- Semaines ----------------------------------------------------------------------------
 
     async def open_week(self, guild_id: int) -> WeekOverview:
-        """Ouvre une nouvelle semaine, photographie le classement et génère les matchs."""
-        async with self._uow() as uow:
+        """Ouvre une semaine, photographie le classement et génère les matchs."""
+        async with self._guard(guild_id), self._uow() as uow:
             if await uow.weeks.get_open(guild_id) is not None:
                 raise WeekAlreadyOpen("Une semaine est déjà en cours : clôture-la d'abord.")
             players = await uow.players.list_active(guild_id)
@@ -157,6 +241,13 @@ class LadderService:
             await uow.snapshots.add_many(
                 [RankingSnapshot(week_id=week.pk, player_id=p.pk, rank=p.rank) for p in players]
             )
+
+            plan = pair_week(
+                [self._candidate(p) for p in players],
+                await self._history(uow, guild_id, number),
+                preferred_weeks=self._rematch_preferred_weeks,
+                hard_weeks=self._rematch_hard_weeks,
+            )
             matches = [
                 await uow.matches.add(
                     Match(
@@ -166,9 +257,16 @@ class LadderService:
                         player2_id=pairing.lower,
                     )
                 )
-                for pairing in self._rule.pair([p.pk for p in players], number)
+                for pairing in plan.pairings
             ]
-            overview = WeekOverview(week, await summarize(uow, matches))
+            by_id = {p.pk: p for p in players}
+            bye = by_id.get(plan.bye) if plan.bye is not None else None
+            overview = WeekOverview(
+                week=week,
+                matches=await summarize(uow, matches),
+                bye=bye,
+                warnings=plan.warnings,
+            )
             await uow.commit()
         return overview
 
@@ -179,19 +277,28 @@ class LadderService:
             if week is None:
                 return None
             matches = await uow.matches.list_for_week(week.pk)
-            return WeekOverview(week, await summarize(uow, matches))
+            players = await uow.players.list_active(guild_id)
+            matched = {
+                pid
+                for m in matches
+                if m.status is not MatchStatus.VOIDED
+                for pid in (m.player1_id, m.player2_id)
+            }
+            unpaired = [p for p in players if p.pk not in matched]
+            bye = unpaired[0] if week.is_open and len(unpaired) == 1 else None
+            return WeekOverview(week, await summarize(uow, matches), bye=bye)
 
     async def close_week(self, guild_id: int) -> WeekClosing:
-        """Clôture la semaine et applique la règle de ladder.
+        """Clôture la semaine, valide les résultats en attente et met à jour les notes.
 
         - un résultat déclaré mais pas encore confirmé est validé ;
-        - un match non joué est annulé (les paris sont remboursés) ;
+        - un match non joué est annulé ;
         - un litige bloque la clôture : un admin doit d'abord trancher.
         """
         now = self._clock.now()
-        confirmed: list[Match] = []
+        auto_confirmed: list[Match] = []
         voided: list[Match] = []
-        async with self._uow() as uow:
+        async with self._guard(guild_id), self._uow() as uow:
             week = await self._require_open_week(uow, guild_id)
             matches = await uow.matches.list_for_week(week.pk)
 
@@ -203,35 +310,30 @@ class LadderService:
             for match in matches:
                 if match.status is MatchStatus.REPORTED:
                     match.auto_confirm(now)
-                    confirmed.append(match)
+                    await uow.matches.update(match)
+                    auto_confirmed.append(match)
                 elif match.status is MatchStatus.PENDING:
                     match.void(now)
+                    await uow.matches.update(match)
                     voided.append(match)
-                else:
-                    continue
-                await uow.matches.update(match)
 
             players = await uow.players.list_active(guild_id)
-            by_id = {p.pk: p for p in players}
-            outcomes = [Outcome(m.player1_id, m.player2_id, m.winner_id) for m in matches]
-            new_order = self._rule.apply([p.pk for p in players], outcomes)
-
-            changes: list[RankChange] = []
-            for new_rank, player_id in enumerate(new_order, start=1):
-                player = by_id[player_id]
-                changes.append(RankChange(player, player.rank, new_rank))
-                if player.rank != new_rank:
-                    player.rank = new_rank
-                    await uow.players.update(player)
+            self._assert_one_match_per_player(players, matches)
+            changes = await self._rate_week(uow, players, matches, now)
 
             week.close(now)
             await uow.weeks.update(week)
             await uow.commit()
 
-        await self._publish_confirmed(confirmed)
+        await self._publish_confirmed(auto_confirmed)
         for match in voided:
             await self._events.publish(MatchVoided(guild_id, match.pk))
-        return WeekClosing(week, changes, confirmed=len(confirmed), voided=len(voided))
+        return WeekClosing(
+            week=week,
+            ranking=changes,
+            confirmed=len(auto_confirmed),
+            voided=len(voided),
+        )
 
     # --- Matchs et résultats -----------------------------------------------------------------
 
@@ -246,7 +348,11 @@ class LadderService:
             player = await self._require_player(uow, guild_id, discord_id)
             week = await self._require_open_week(uow, guild_id)
             match = next(
-                (m for m in await uow.matches.list_for_week(week.pk) if m.involves(player.pk)),
+                (
+                    m
+                    for m in await uow.matches.list_for_week(week.pk)
+                    if m.involves(player.pk) and m.status is not MatchStatus.VOIDED
+                ),
                 None,
             )
             if match is None:
@@ -259,6 +365,7 @@ class LadderService:
         async with self._uow() as uow:
             player = await self._require_player(uow, guild_id, discord_id)
             match = await require_match(uow, guild_id, match_id)
+            await self._require_open_week_of(uow, match)
             status = match.report(
                 player.pk, own_score, opponent_score, self._format, self._clock.now()
             )
@@ -286,6 +393,7 @@ class LadderService:
         async with self._uow() as uow:
             player = await self._require_player(uow, guild_id, discord_id)
             match = await require_match(uow, guild_id, match_id)
+            await self._require_open_week_of(uow, match)
             self._require_current_report(match, expected)
             match.confirm(player.pk, self._clock.now())
             await uow.matches.update(match)
@@ -305,6 +413,7 @@ class LadderService:
         async with self._uow() as uow:
             player = await self._require_player(uow, guild_id, discord_id)
             match = await require_match(uow, guild_id, match_id)
+            await self._require_open_week_of(uow, match)
             # Même contrôle que pour la confirmation : un bouton obsolète ne
             # doit pas contester silencieusement une nouvelle déclaration.
             self._require_current_report(match, expected)
@@ -320,6 +429,7 @@ class LadderService:
         """Décision d'un admin (litige, forfait, oubli de déclaration)."""
         async with self._uow() as uow:
             match = await require_match(uow, guild_id, match_id)
+            await self._require_open_week_of(uow, match)
             match.resolve(score1, score2, self._format, self._clock.now())
             await uow.matches.update(match)
             summary = (await summarize(uow, [match]))[0]
@@ -337,14 +447,220 @@ class LadderService:
                 for m in await uow.matches.list_by_status(MatchStatus.REPORTED)
                 if m.reported_at is not None and m.reported_at <= cutoff
             ]
+            confirmed: list[Match] = []
             for match in stale:
+                week = await uow.weeks.get(match.week_id)
+                if week is None or not week.is_open:
+                    continue
                 match.auto_confirm(now)
                 await uow.matches.update(match)
+                confirmed.append(match)
             await uow.commit()
-        await self._publish_confirmed(stale)
-        return stale
+        await self._publish_confirmed(confirmed)
+        return confirmed
+
+    # --- Appariement -------------------------------------------------------------------------
+
+    async def _pair_unmatched(
+        self, uow: UnitOfWork, guild_id: int, week: Week
+    ) -> list[MatchSummary]:
+        """Apparie les joueurs de la semaine qui n'ont pas encore de match.
+
+        Utilisé à l'inscription et après le retrait d'un joueur. Les joueurs déjà appariés
+        (même via un match annulé) sont exclus : un match annulé libère la place.
+        """
+        players = await uow.players.list_active(guild_id)
+        matches = await uow.matches.list_for_week(week.pk)
+        matched = {
+            pid
+            for match in matches
+            if match.status is not MatchStatus.VOIDED
+            for pid in (match.player1_id, match.player2_id)
+        }
+        unpaired = [p for p in players if p.pk not in matched]
+        if len(unpaired) < 2:
+            return []
+
+        plan = pair_week(
+            [self._candidate(p) for p in unpaired],
+            await self._history(uow, guild_id, week.number),
+            preferred_weeks=self._rematch_preferred_weeks,
+            hard_weeks=self._rematch_hard_weeks,
+        )
+        created = [
+            await uow.matches.add(
+                Match(
+                    guild_id=guild_id,
+                    week_id=week.pk,
+                    player1_id=pairing.higher,
+                    player2_id=pairing.lower,
+                )
+            )
+            for pairing in plan.pairings
+        ]
+        return await summarize(uow, created)
+
+    async def _history(
+        self, uow: UnitOfWork, guild_id: int, current_week_number: int
+    ) -> dict[PairKey, int]:
+        """Nombre de semaines depuis la dernière rencontre confirmée de chaque paire."""
+        confirmed = await uow.matches.list_for_guild(guild_id, MatchStatus.CONFIRMED)
+        weeks: dict[int, Week | None] = {}
+        history: dict[PairKey, int] = {}
+        for match in confirmed:
+            if match.week_id not in weeks:
+                weeks[match.week_id] = await uow.weeks.get(match.week_id)
+            week = weeks[match.week_id]
+            if week is None:
+                continue
+            since = current_week_number - week.number
+            if since < 1:
+                continue
+            key = pair_key(match.player1_id, match.player2_id)
+            previous = history.get(key)
+            if previous is None or since < previous:
+                history[key] = since
+        return history
+
+    # --- Notes et classement -----------------------------------------------------------------
+
+    async def _rate_week(
+        self,
+        uow: UnitOfWork,
+        players: Sequence[Player],
+        matches: Sequence[Match],
+        now: datetime,
+    ) -> list[RankChange]:
+        by_id = {p.pk: p for p in players}
+        involved = {pid for match in matches for pid in (match.player1_id, match.player2_id)}
+        missing = involved.difference(by_id)
+        if missing:
+            by_id.update(await uow.players.get_many(missing))
+
+        old_ratings = {p.pk: p.rating for p in players}
+        old_ranks = {p.pk: p.rank for p in players}
+        played: set[int] = set()
+
+        for match in matches:
+            if match.status is not MatchStatus.CONFIRMED:
+                continue
+            if match.rated:
+                # Déjà noté : on évite de le compter comme une semaine sans match.
+                played.update((match.player1_id, match.player2_id))
+                continue
+            first_player = by_id[match.player1_id]
+            second_player = by_id[match.player2_id]
+            winner_id = match.winner_id
+            if winner_id is None:
+                raise InvalidMatchState(f"Le match #{match.pk} n'a pas de vainqueur.")
+            first_rating, second_rating = update_match(
+                self._rating(first_player),
+                self._rating(second_player),
+                1.0 if winner_id == first_player.pk else 0.0,
+            )
+            for player, new_rating in (
+                (first_player, first_rating),
+                (second_player, second_rating),
+            ):
+                player.rating = new_rating.mu
+                player.rating_deviation = new_rating.deviation
+                player.rating_volatility = new_rating.volatility
+                player.rated_matches += 1
+                player.inactive_weeks = 0
+                player.last_match_at = now
+                played.add(player.pk)
+                await uow.players.update(player)
+            match.rated = True
+            await uow.matches.update(match)
+
+        for player in players:
+            if player.pk in played:
+                continue
+            inflated = self._rating(player).inflate()
+            player.rating_deviation = inflated.deviation
+            player.inactive_weeks += 1
+            player.byes += 1
+            await uow.players.update(player)
+
+        await self._assign_ranks(uow, players)
+        return [
+            RankChange(
+                player=player,
+                old_rank=old_ranks[player.pk],
+                new_rank=player.rank,
+                old_rating=old_ratings[player.pk],
+                new_rating=player.rating,
+                provisional=player.rated_matches < self._placement_matches,
+            )
+            for player in sorted(players, key=lambda p: p.rank)
+        ]
+
+    async def _assign_ranks(self, uow: UnitOfWork, players: Sequence[Player]) -> None:
+        """Attribue les places : joueurs classés d'abord, puis joueurs en placement."""
+        ranked = sorted(
+            (p for p in players if p.rated_matches >= self._placement_matches),
+            key=lambda p: (-p.rating, p.rating_deviation, p.pk),
+        )
+        # ``rank`` sert de départage entre joueurs en placement : il est attribué à
+        # l'inscription (ou à la réactivation) à la dernière place, ce qui garantit qu'un
+        # nouvel arrivant ne passe pas devant les inscrits actuels à note égale.
+        provisional = sorted(
+            (p for p in players if p.rated_matches < self._placement_matches),
+            key=lambda p: (-p.rating, -p.rated_matches, p.rank, p.pk),
+        )
+        for position, player in enumerate([*ranked, *provisional], start=1):
+            if player.rank != position:
+                player.rank = position
+                await uow.players.update(player)
+
+    def _assert_one_match_per_player(
+        self, players: Sequence[Player], matches: Sequence[Match]
+    ) -> None:
+        counts: Counter[int] = Counter()
+        for match in matches:
+            if match.status is MatchStatus.VOIDED:
+                continue
+            counts[match.player1_id] += 1
+            counts[match.player2_id] += 1
+        duplicated = [player_id for player_id, count in counts.items() if count > 1]
+        if duplicated:
+            names = ", ".join(
+                next(
+                    (p.display_name for p in players if p.pk == player_id),
+                    f"#{player_id}",
+                )
+                for player_id in duplicated
+            )
+            raise InvalidMatchState(
+                f"Plusieurs matchs pour un même joueur cette semaine : {names}."
+            )
 
     # --- Interne -----------------------------------------------------------------------------
+
+    @asynccontextmanager
+    async def _guard(self, guild_id: int) -> AsyncIterator[None]:
+        """Verrou par serveur pour les opérations d'appariement et de clôture."""
+        lock = self._locks.setdefault(guild_id, asyncio.Lock())
+        async with lock:
+            yield
+
+    @staticmethod
+    def _rating(player: Player) -> Rating:
+        return Rating(
+            mu=player.rating,
+            deviation=player.rating_deviation,
+            volatility=player.rating_volatility,
+        )
+
+    @staticmethod
+    def _candidate(player: Player) -> PairingCandidate:
+        return PairingCandidate(
+            player_id=player.pk,
+            rating=player.rating,
+            rating_deviation=player.rating_deviation,
+            byes=player.byes,
+            rank=player.rank,
+        )
 
     async def _publish_confirmed(self, matches: Sequence[Match]) -> None:
         for match in matches:
@@ -381,6 +697,12 @@ class LadderService:
         if week is None:
             raise NoOpenWeek()
         return week
+
+    @staticmethod
+    async def _require_open_week_of(uow: UnitOfWork, match: Match) -> None:
+        week = await uow.weeks.get(match.week_id)
+        if week is None or not week.is_open:
+            raise InvalidMatchState("La semaine de ce match est clôturée.")
 
 
 def _records(confirmed: Sequence[Match]) -> tuple[Counter[int], Counter[int]]:

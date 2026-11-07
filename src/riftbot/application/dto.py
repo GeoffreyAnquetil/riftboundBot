@@ -52,9 +52,20 @@ class ReportFingerprint:
 
 
 @dataclass(frozen=True)
+class Registration:
+    """Résultat d'une inscription : le joueur et, si possible, son match de la semaine."""
+
+    player: Player
+    match: MatchSummary | None
+    reactivated: bool
+
+
+@dataclass(frozen=True)
 class WeekOverview:
     week: Week
     matches: list[MatchSummary]
+    bye: Player | None = None
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,6 +73,21 @@ class LeaderboardEntry:
     player: Player
     wins: int
     losses: int
+    provisional: bool
+    inactive: bool
+    placement_matches: int = 4
+
+    @property
+    def rating(self) -> float:
+        return self.player.rating
+
+    @property
+    def deviation(self) -> float:
+        return self.player.rating_deviation
+
+    @property
+    def rated_matches(self) -> int:
+        return self.player.rated_matches
 
 
 @dataclass(frozen=True)
@@ -71,6 +97,21 @@ class PlayerProfile:
     losses: int
     best_rank: int
     recent: list[MatchSummary]
+    provisional: bool
+    inactive: bool
+    placement_matches: int = 4
+
+    @property
+    def rating(self) -> float:
+        return self.player.rating
+
+    @property
+    def deviation(self) -> float:
+        return self.player.rating_deviation
+
+    @property
+    def rated_matches(self) -> int:
+        return self.player.rated_matches
 
 
 @dataclass(frozen=True)
@@ -84,11 +125,18 @@ class RankChange:
     player: Player
     old_rank: int
     new_rank: int
+    old_rating: float
+    new_rating: float
+    provisional: bool
 
     @property
     def delta(self) -> int:
         """Positif quand le joueur monte."""
         return self.old_rank - self.new_rank
+
+    @property
+    def rating_delta(self) -> float:
+        return self.new_rating - self.old_rating
 
 
 @dataclass(frozen=True)

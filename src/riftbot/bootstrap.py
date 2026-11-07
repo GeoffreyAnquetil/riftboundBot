@@ -16,7 +16,6 @@ from riftbot.application.ports import Clock, EventBus, UnitOfWork, UnitOfWorkFac
 from riftbot.config import Settings
 from riftbot.domain.economy.payout import ParimutuelPayout
 from riftbot.domain.ladder.models import MatchFormat
-from riftbot.domain.ladder.rules import AdjacentPairsRule
 from riftbot.infrastructure.clock import SystemClock
 from riftbot.infrastructure.event_bus import LocalEventBus
 from riftbot.infrastructure.sql.database import create_engine, create_session_factory
@@ -39,11 +38,14 @@ def build_services(
     events = events or LocalEventBus()
     ladder = LadderService(
         uow_factory,
-        rule=AdjacentPairsRule(),  # MOCK : à remplacer par la vraie règle de ladder
         clock=clock,
         events=events,
         match_format=MatchFormat(best_of=settings.best_of),
         auto_confirm_after=timedelta(hours=settings.auto_confirm_hours),
+        placement_matches=settings.placement_matches,
+        rematch_preferred_weeks=settings.rematch_preferred_weeks,
+        rematch_hard_weeks=settings.rematch_hard_weeks,
+        inactive_after_weeks=settings.inactive_after_weeks,
     )
     betting = BettingService(
         uow_factory,
