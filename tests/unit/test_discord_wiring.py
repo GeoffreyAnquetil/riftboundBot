@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -35,6 +37,17 @@ BETTING_COMMANDS = {
 def memory_services() -> Services:
     store = InMemoryStore()
     return build_services(Settings(_env_file=None), lambda: InMemoryUnitOfWork(store))
+
+
+async def test_bot_channel_filter(memory_services: Services) -> None:
+    bot = RiftBot(memory_services, bot_channel_id=123)
+    response = SimpleNamespace(is_done=lambda: False, send_message=AsyncMock())
+    wrong = cast(Any, SimpleNamespace(channel_id=456, channel=None, response=response))
+    right = cast(Any, SimpleNamespace(channel_id=123, channel=None, response=response))
+
+    assert await bot._check_bot_channel(wrong) is False
+    assert response.send_message.await_count == 1
+    assert await bot._check_bot_channel(right) is True
 
 
 async def test_all_commands_are_registered(memory_services: Services) -> None:

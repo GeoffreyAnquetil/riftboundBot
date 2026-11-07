@@ -30,6 +30,7 @@ class RiftBot(commands.Bot):
         dev_guild_id: int | None = None,
         dev_commands: bool = False,
         enable_betting: bool = False,
+        bot_channel_id: int | None = None,
         sync_cache: Path | None = None,
         force_sync: bool = False,
     ) -> None:
@@ -45,6 +46,7 @@ class RiftBot(commands.Bot):
         self._dev_guild_id = dev_guild_id
         self._dev_commands = dev_commands
         self._enable_betting = enable_betting
+        self._bot_channel_id = bot_channel_id
         # Empreinte des commandes déjà envoyées à Discord. Elle évite de refaire
         # un appel d'écriture (enregistrement des slash commands) à chaque
         # redémarrage, et donc d'alimenter une éventuelle boucle de crash.
@@ -53,8 +55,25 @@ class RiftBot(commands.Bot):
         self.tree.error(self._on_app_command_error)
 
     async def setup_hook(self) -> None:
+        if self._bot_channel_id is not None:
+            # discord.py expose ``interaction_check`` comme une méthode ; on la remplace
+            # à l'instance pour appliquer le filtre de salon à toutes les commandes.
+            self.tree.interaction_check = self._check_bot_channel  # type: ignore[method-assign]
         await self.register_components()
         await self.sync_commands()
+
+    async def _check_bot_channel(self, interaction: discord.Interaction[Any]) -> bool:
+        """Refuse les commandes hors du salon configuré, sans jamais lever."""
+        if self._bot_channel_id is None or interaction.channel_id == self._bot_channel_id:
+            return True
+        channel = interaction.channel
+        if isinstance(channel, discord.Thread) and channel.parent_id == self._bot_channel_id:
+            return True
+        await send_error(
+            interaction,
+            f"Ce bot est limité au salon <#{self._bot_channel_id}>.",
+        )
+        return False
 
     async def register_components(self) -> None:
         await self.add_cog(LadderCog(self.services))

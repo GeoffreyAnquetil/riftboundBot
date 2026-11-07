@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     dev_guild_id: int | None = None
     # Commandes /dev (faux joueurs) pour tester seul. Jamais en production.
     enable_dev_commands: bool = False
+    # Salon unique autorisé pour les commandes du bot. Vide = aucun filtre.
+    # Utile pour isoler un bot de test dans un seul salon.
+    bot_channel_id: int | None = None
     database_url: str = "sqlite+aiosqlite:///data/riftbot.db"
 
     # --- Garde-fous de démarrage / redémarrage -----------------------------------------------

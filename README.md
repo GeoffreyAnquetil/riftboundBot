@@ -93,6 +93,9 @@ uv run riftbot           # applique les migrations puis lance le bot
 3. Pour le développement, mettre l'ID du serveur de test dans `DEV_GUILD_ID` : les commandes y
    apparaissent immédiatement. Pour copier cet ID, activer le mode développeur dans Discord,
    puis faire clic droit sur le serveur > *Copier l'identifiant*.
+4. Pour limiter le bot à un seul salon, renseigner `BOT_CHANNEL_ID` avec l'ID du salon (clic
+   droit sur le salon > *Copier l'identifiant*). Toute commande lancée ailleurs reçoit un
+   message éphémère indiquant le salon autorisé. Laisser vide pour autoriser tous les salons.
 
 ### Docker
 
