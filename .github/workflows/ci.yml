@@ -13,10 +13,17 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
         with:
+          version: "0.13.7"
           enable-cache: true
 
       - name: Dépendances
         run: uv sync --locked
+
+      - name: requirements.txt à jour
+        run: |
+          uv export --locked --no-dev --no-hashes --no-emit-project -o requirements.txt
+          git ls-files --error-unmatch requirements.txt
+          git diff --exit-code -- requirements.txt
 
       - name: Formatage
         run: uv run ruff format --check

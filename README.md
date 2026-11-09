@@ -119,6 +119,11 @@ le crée en root sur un hôte Linux) puis abandonne les privilèges root avant d
 bot. Si tu lances le conteneur toi-même avec `--user 1000:1000`, crée le dossier avec les
 bons droits : `mkdir -p data && sudo chown -R 1000:1000 data`.
 
+### Wispbyte
+
+Pour un hébergement Wispbyte, voir [docs/DEPLOIEMENT_WISPBITE.md](docs/DEPLOIEMENT_WISPBITE.md)
+(image Python 3.12, `main.py`, `requirements.txt` et variables d'environnement).
+
 ### Redémarrages et limites Discord
 
 Le conteneur utilise `restart: "on-failure:5"` : après cinq échecs consécutifs,
