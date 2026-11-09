@@ -6,12 +6,18 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
+import discord
 import pytest
 
 from riftbot.bootstrap import Services, build_services
 from riftbot.config import Settings
 from riftbot.discord_bot.bot import RiftBot
 from riftbot.discord_bot.cogs.ladder import LadderCog
+from riftbot.discord_bot.views.correction import (
+    corrected_announcement,
+    correction_view,
+    outcome_view,
+)
 from riftbot.discord_bot.views.result import ResultModal, confirmation_view
 from riftbot.infrastructure.memory.uow import InMemoryStore, InMemoryUnitOfWork
 from tests.conftest import GUILD
@@ -66,6 +72,7 @@ async def test_all_commands_are_registered(memory_services: Services) -> None:
             "week-open",
             "week-close",
             "set-result",
+            "correct-result",
             "remove-player",
         }
         assert admin["default_member_permissions"] is not None
@@ -129,3 +136,38 @@ async def test_result_modal_offers_every_bo3_score(memory_services: Services) ->
     custom_ids = [getattr(getattr(item, "item", None), "custom_id", "") for item in view.children]
     assert all(str(reported.pk) in custom_id for custom_id in custom_ids)
     assert all("2:0" in custom_id for custom_id in custom_ids)
+
+
+async def test_correction_view_lists_open_week_matches_and_outcomes(
+    memory_services: Services,
+) -> None:
+    ladder = memory_services.ladder
+    for discord_id in (1, 2, 3, 4):
+        await ladder.register(GUILD, discord_id, f"joueur{discord_id}")
+    overview = await ladder.open_week(GUILD)
+
+    match_select = correction_view(ladder, overview.matches).children[0]
+    assert isinstance(match_select, discord.ui.Select)
+    assert [option.value for option in match_select.options] == [
+        str(summary.match.pk) for summary in overview.matches
+    ]
+
+    outcome_select = outcome_view(ladder, overview.matches[0]).children[0]
+    assert isinstance(outcome_select, discord.ui.Select)
+    assert [option.value for option in outcome_select.options] == ["2:0", "2:1", "0:2", "1:2"]
+
+
+async def test_corrected_announcement_mentions_both_players(
+    memory_services: Services,
+) -> None:
+    ladder = memory_services.ladder
+    alice, bob = 111111111111111111, 222222222222222222
+    await ladder.register(GUILD, alice, "Alice")
+    await ladder.register(GUILD, bob, "Bob")
+    match_id = (await ladder.open_week(GUILD)).matches[0].match.pk
+    await ladder.set_result(GUILD, match_id, 2, 0)
+
+    text = corrected_announcement(await ladder.get_match(GUILD, match_id))
+
+    assert f"<@{alice}>" in text
+    assert f"<@{bob}>" in text

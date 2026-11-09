@@ -23,6 +23,7 @@ Bot Discord de ladder hebdomadaire pour le TCG Riftbound.
 | `/admin week-open` | Ouvrir une semaine et générer les matchs |
 | `/admin week-close` | Clôturer la semaine et mettre à jour les notes |
 | `/admin set-result` | Trancher un litige, saisir un forfait |
+| `/admin correct-result` | Corriger un résultat de la semaine (listes déroulantes) |
 | `/admin remove-player` | Retirer un joueur du ladder |
 
 Les commandes `/admin` sont réservées par défaut aux membres qui ont la permission « Gérer le
@@ -47,15 +48,13 @@ serveur » (modifiable dans *Paramètres du serveur > Intégrations*).
 
 ### Corriger un résultat
 
-Un admin peut corriger un score avec `/admin set-result` même après la clôture, **à
-condition que le vainqueur ne change pas** : les notes Glicko-2 ne dépendent que du
-vainqueur, pas du score, donc une correction du type `2-0` → `2-1` laisse le classement
-intact. Changer le vainqueur après la clôture demanderait de recalculer toute la semaine et
-n'est pas supporté en V1 : tranche le litige avant de clôturer.
+Pendant une semaine ouverte, un admin peut changer le résultat de n'importe quel match avec
+`/admin correct-result` : une liste déroulante propose les matchs de la semaine, puis le
+nouveau résultat. Le bot publie ensuite un message public qui mentionne les deux joueurs.
 
-La correction porte sur la semaine affichée par `/matches` : la semaine en cours, ou à
-défaut la dernière clôturée. Dès qu'une nouvelle semaine est ouverte, la précédente n'est
-plus corrigeable.
+`/admin set-result` fait la même chose avec des options classiques (match, vainqueur et
+score). Une fois la semaine clôturée, les résultats sont définitifs : les notes ont été
+appliquées. Tranche les litiges avant `/admin week-close`.
 
 ## Classement et appariement
 

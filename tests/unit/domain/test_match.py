@@ -110,27 +110,27 @@ def test_void() -> None:
         match.void(NOW)
 
 
-def test_correct_score_after_confirmation_keeps_the_winner() -> None:
+def test_override_result_changes_the_winner() -> None:
     match = new_match()
     match.resolve(2, 0, BO3, NOW)
-    match.correct_score(2, 1, BO3)
-    assert (match.score1, match.score2) == (2, 1)
-    assert match.winner_side is Side.ONE
+    match.override_result(0, 2, BO3)
+    assert (match.score1, match.score2) == (0, 2)
+    assert match.winner_side is Side.TWO
 
 
-def test_correct_score_cannot_change_the_winner() -> None:
-    match = new_match()
-    match.resolve(2, 0, BO3, NOW)
-    with pytest.raises(InvalidMatchState, match="vainqueur"):
-        match.correct_score(1, 2, BO3)
-    assert (match.score1, match.score2) == (2, 0)
-
-
-def test_correct_score_requires_a_confirmed_match() -> None:
+def test_override_result_requires_a_confirmed_match() -> None:
     match = new_match()
     match.report(P1, 2, 0, BO3, NOW)
     with pytest.raises(InvalidMatchState):
-        match.correct_score(2, 1, BO3)
+        match.override_result(0, 2, BO3)
+
+
+def test_override_result_refuses_an_already_rated_match() -> None:
+    match = new_match()
+    match.resolve(2, 0, BO3, NOW)
+    match.rated = True
+    with pytest.raises(InvalidMatchState, match="déjà noté"):
+        match.override_result(0, 2, BO3)
 
 
 def test_bets_close_once_a_result_is_reported() -> None:

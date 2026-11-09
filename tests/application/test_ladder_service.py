@@ -246,53 +246,30 @@ async def test_dispute_blocks_closing_until_an_admin_decides(services: Services)
     assert await ranking(ladder) == [BOB, ALICE]
 
 
-async def test_score_correction_after_closing_keeps_ratings(
-    services: Services, uow_factory: UnitOfWorkFactory
-) -> None:
-    """Une correction à vainqueur constant ne touche pas aux notes déjà appliquées."""
+async def test_admin_can_change_a_confirmed_result_before_closing(services: Services) -> None:
+    """Tant que la semaine est ouverte, un admin peut remplacer un résultat validé."""
+    ladder = services.ladder
+    await register_all(ladder, ALICE, BOB)
+    match_id = (await ladder.open_week(GUILD)).matches[0].match.pk
+    await ladder.set_result(GUILD, match_id, 2, 0)  # Alice gagne
+
+    summary = await ladder.set_result(GUILD, match_id, 0, 2)  # finalement Bob
+    assert summary.winner is not None
+    assert summary.winner.discord_id == BOB
+
+    await ladder.close_week(GUILD)
+    assert await ranking(ladder) == [BOB, ALICE]
+
+
+async def test_correcting_a_result_after_closing_is_refused(services: Services) -> None:
     ladder = services.ladder
     await register_all(ladder, ALICE, BOB)
     match_id = (await ladder.open_week(GUILD)).matches[0].match.pk
     await ladder.set_result(GUILD, match_id, 2, 0)
     await ladder.close_week(GUILD)
 
-    before = [
-        (p.rating, p.rating_deviation, p.rating_volatility, p.rated_matches)
-        for p in (await get_player(uow_factory, ALICE), await get_player(uow_factory, BOB))
-    ]
-
-    summary = await ladder.set_result(GUILD, match_id, 2, 1)
-
-    assert (summary.match.score1, summary.match.score2) == (2, 1)
-    after = [
-        (p.rating, p.rating_deviation, p.rating_volatility, p.rated_matches)
-        for p in (await get_player(uow_factory, ALICE), await get_player(uow_factory, BOB))
-    ]
-    assert after == before
-
-
-async def test_changing_the_winner_after_closing_is_refused(services: Services) -> None:
-    ladder = services.ladder
-    await register_all(ladder, ALICE, BOB)
-    match_id = (await ladder.open_week(GUILD)).matches[0].match.pk
-    await ladder.set_result(GUILD, match_id, 2, 0)
-    await ladder.close_week(GUILD)
-
-    with pytest.raises(InvalidMatchState, match="vainqueur"):
+    with pytest.raises(InvalidMatchState, match="clôturée"):
         await ladder.set_result(GUILD, match_id, 0, 2)
-
-    summary = await ladder.get_match(GUILD, match_id)
-    assert (summary.match.score1, summary.match.score2) == (2, 0)
-
-
-async def test_correcting_a_voided_match_after_closing_is_refused(services: Services) -> None:
-    ladder = services.ladder
-    await register_all(ladder, ALICE, BOB)
-    match_id = (await ladder.open_week(GUILD)).matches[0].match.pk
-    await ladder.close_week(GUILD)  # match non joué : annulé à la clôture
-
-    with pytest.raises(InvalidMatchState):
-        await ladder.set_result(GUILD, match_id, 2, 0)
 
 
 async def test_only_the_opponent_can_confirm(services: Services) -> None:

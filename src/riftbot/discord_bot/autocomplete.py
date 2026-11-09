@@ -23,13 +23,9 @@ async def match_choices(
     current: str,
     keep: Callable[[MatchSummary], bool],
 ) -> list[app_commands.Choice[int]]:
-    """Matchs de la semaine affichée qui satisfont ``keep``, filtrés par le texte saisi.
-
-    La semaine affichée est celle en cours, ou à défaut la dernière clôturée : c'est ce
-    qui permet de corriger un score après la clôture.
-    """
+    """Matchs de la semaine en cours qui satisfont ``keep``, filtrés par le texte saisi."""
     overview = await ladder.week_overview(guild_id(interaction))
-    if overview is None:
+    if overview is None or not overview.week.is_open:
         return []
     needle = current.lower()
     choices = [

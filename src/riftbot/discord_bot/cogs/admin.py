@@ -1,4 +1,5 @@
-"""Commandes d'administration : /admin week-open, week-close, set-result, remove-player.
+"""Commandes d'administration : /admin week-open, week-close, set-result, correct-result,
+remove-player.
 
 Réservées par défaut aux membres ayant la permission « Gérer le serveur ». Les admins du
 serveur peuvent ajuster ces droits dans Paramètres > Intégrations.
@@ -13,9 +14,10 @@ from discord import app_commands
 from discord.ext import commands
 
 from riftbot.bootstrap import Services
-from riftbot.discord_bot.autocomplete import match_choices, winner_choices
-from riftbot.discord_bot.common import guild_id, mention
+from riftbot.discord_bot.autocomplete import MAX_CHOICES, match_choices, winner_choices
+from riftbot.discord_bot.common import guild_id, mention, send_error
 from riftbot.discord_bot.views import embeds
+from riftbot.discord_bot.views.correction import correction_view
 from riftbot.discord_bot.views.result import confirmed_message
 from riftbot.domain.errors import InvalidScore, NotFound
 from riftbot.domain.ladder.models import MatchStatus, Side
@@ -98,6 +100,29 @@ class AdminCog(commands.GroupCog, group_name="admin", group_description="Gestion
             app_commands.Choice(name=f"{won}-{lost}", value=f"{won}-{lost}")
             for won, lost in self._ladder.match_format.winning_scores()
         ]
+
+    @app_commands.command(
+        name="correct-result",
+        description="Corriger le résultat d'un match de la semaine (liste déroulante)",
+    )
+    async def correct_result(self, interaction: discord.Interaction[Any]) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        overview = await self._ladder.week_overview(guild_id(interaction))
+        if overview is None or not overview.week.is_open:
+            await send_error(interaction, "Aucune semaine en cours : ouvre une semaine d'abord.")
+            return
+        summaries = [s for s in overview.matches if s.match.status is not MatchStatus.VOIDED]
+        if not summaries:
+            await send_error(interaction, "Aucun match à corriger cette semaine.")
+            return
+        note = (
+            "" if len(summaries) <= MAX_CHOICES else f"\n({MAX_CHOICES} premiers matchs affichés)"
+        )
+        await interaction.followup.send(
+            f"Quel match de la semaine {overview.week.number} veux-tu corriger ?{note}",
+            view=correction_view(self._ladder, summaries[:MAX_CHOICES]),
+            ephemeral=True,
+        )
 
     @app_commands.command(name="remove-player", description="Retire un joueur du ladder")
     @app_commands.describe(member="Joueur à retirer")
