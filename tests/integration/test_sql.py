@@ -43,6 +43,20 @@ def test_migrations_match_the_models(tmp_path: Path) -> None:
     command.check(config)
 
 
+async def test_sqlite_connection_pragmas(tmp_path: Path) -> None:
+    """WAL + busy_timeout évitent les « database is locked » entre écritures concurrentes."""
+    url = f"sqlite+aiosqlite:///{tmp_path / 'pragmas.db'}"
+    await asyncio.to_thread(upgrade_database, url)
+    engine = create_engine(url)
+    try:
+        async with engine.connect() as connection:
+            assert (await connection.exec_driver_sql("PRAGMA journal_mode")).scalar_one() == "wal"
+            assert (await connection.exec_driver_sql("PRAGMA busy_timeout")).scalar_one() == 5000
+            assert (await connection.exec_driver_sql("PRAGMA foreign_keys")).scalar_one() == 1
+    finally:
+        await engine.dispose()
+
+
 async def test_datetimes_come_back_in_utc(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

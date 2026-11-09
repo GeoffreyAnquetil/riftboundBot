@@ -426,15 +426,28 @@ class LadderService:
     async def set_result(
         self, guild_id: int, match_id: int, score1: int, score2: int
     ) -> MatchSummary:
-        """Décision d'un admin (litige, forfait, oubli de déclaration)."""
+        """Décision d'un admin (litige, forfait, oubli, correction après clôture).
+
+        Sur une semaine ouverte, le résultat est fixé puis noté à la clôture. Sur une
+        semaine déjà clôturée, seule une correction de score à vainqueur constant est
+        acceptée : les notes Glicko-2 ne dépendent que du vainqueur, donc elles restent
+        valides. Changer le vainqueur exigerait de recalculer la semaine, ce qui n'est
+        pas supporté en V1.
+        """
         async with self._uow() as uow:
             match = await require_match(uow, guild_id, match_id)
-            await self._require_open_week_of(uow, match)
-            match.resolve(score1, score2, self._format, self._clock.now())
+            week = await uow.weeks.get(match.week_id)
+            if week is None:
+                raise NotFound(f"Le match #{match_id} n'a pas de semaine.")
+            if week.is_open:
+                match.resolve(score1, score2, self._format, self._clock.now())
+            else:
+                match.correct_score(score1, score2, self._format)
             await uow.matches.update(match)
             summary = (await summarize(uow, [match]))[0]
             await uow.commit()
-        await self._publish_confirmed([match])
+        if week.is_open:
+            await self._publish_confirmed([match])
         return summary
 
     async def auto_confirm_stale(self) -> list[Match]:

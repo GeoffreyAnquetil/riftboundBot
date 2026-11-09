@@ -18,7 +18,7 @@ from riftbot.discord_bot.common import guild_id, mention
 from riftbot.discord_bot.views import embeds
 from riftbot.discord_bot.views.result import confirmed_message
 from riftbot.domain.errors import InvalidScore, NotFound
-from riftbot.domain.ladder.models import Side
+from riftbot.domain.ladder.models import MatchStatus, Side
 
 
 @app_commands.guild_only()
@@ -52,7 +52,10 @@ class AdminCog(commands.GroupCog, group_name="admin", group_description="Gestion
         closing = await self._ladder.close_week(guild_id(interaction))
         await interaction.followup.send(embed=embeds.week_closing(closing))
 
-    @app_commands.command(name="set-result", description="Fixe le résultat d'un match (litige…)")
+    @app_commands.command(
+        name="set-result",
+        description="Fixe ou corrige un résultat (litige, forfait, après clôture)",
+    )
     @app_commands.describe(match="Match à trancher", winner="Vainqueur", score="Score du vainqueur")
     async def set_result(
         self, interaction: discord.Interaction[Any], match: int, winner: int, score: str
@@ -72,8 +75,13 @@ class AdminCog(commands.GroupCog, group_name="admin", group_description="Gestion
     async def _set_result_match(
         self, interaction: discord.Interaction[Any], current: str
     ) -> list[app_commands.Choice[int]]:
+        # Les matchs validés restent proposés : c'est ainsi qu'un admin corrige un
+        # score après la clôture (le service refuse un changement de vainqueur).
         return await match_choices(
-            self._ladder, interaction, current, lambda s: not s.match.is_final
+            self._ladder,
+            interaction,
+            current,
+            lambda s: s.match.status is not MatchStatus.VOIDED,
         )
 
     @set_result.autocomplete("winner")

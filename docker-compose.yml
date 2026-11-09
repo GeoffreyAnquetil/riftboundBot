@@ -14,6 +14,8 @@ services:
     environment:
       DATABASE_URL: sqlite+aiosqlite:////app/data/riftbot.db
     volumes:
+      # L'entrypoint du conteneur corrige les droits de ce dossier (créé en root
+      # par Docker au premier lancement) avant d'abandonner les privilèges.
       - ./data:/app/data
     # Rotation des logs : évite de saturer le disque si Discord renvoie des
     # erreurs pendant une longue période.

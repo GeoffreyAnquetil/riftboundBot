@@ -15,10 +15,10 @@ RUN uv sync --locked --no-dev --no-install-project
 
 COPY alembic.ini ./
 COPY src ./src
+COPY docker/entrypoint.py /app/entrypoint.py
 RUN uv sync --locked --no-dev
 
 RUN useradd --create-home --uid 1000 bot && mkdir -p /app/data && chown bot /app/data
-USER bot
 
 ENV DATABASE_URL=sqlite+aiosqlite:////app/data/riftbot.db
 VOLUME ["/app/data"]
@@ -27,4 +27,8 @@ VOLUME ["/app/data"]
 # fermer proprement la gateway Discord et disposer le moteur SQL.
 STOPSIGNAL SIGINT
 
+# Pas de USER bot ici : docker/entrypoint.py démarre en root, corrige les droits
+# du volume ./data (créé en root par Docker sur un hôte Linux) puis abandonne les
+# privilèges au profit de l'utilisateur bot avant d'exécuter le CMD.
+ENTRYPOINT ["python", "/app/entrypoint.py"]
 CMD ["/app/.venv/bin/riftbot"]

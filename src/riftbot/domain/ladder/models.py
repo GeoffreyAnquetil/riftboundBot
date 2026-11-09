@@ -225,6 +225,27 @@ class Match(Entity):
         self.score1, self.score2 = score1, score2
         self._confirm(at)
 
+    def correct_score(self, score1: int, score2: int, fmt: MatchFormat) -> None:
+        """Corrige le score d'un match validé sans changer le vainqueur.
+
+        Sert aux corrections après la clôture de la semaine : les notes Glicko-2 ne
+        dépendent que du vainqueur, pas du score, donc une correction à vainqueur
+        constant ne fausse pas le classement déjà calculé.
+        """
+        if self.status is not MatchStatus.CONFIRMED:
+            raise InvalidMatchState(
+                "Seul un match validé peut être corrigé après la clôture de sa semaine."
+            )
+        fmt.validate(score1, score2)
+        current_winner = self.winner_side
+        new_winner = Side.ONE if score1 > score2 else Side.TWO
+        if current_winner is None or new_winner is not current_winner:
+            raise InvalidMatchState(
+                "Changer le vainqueur après la clôture n'est pas possible : "
+                "les notes de la semaine sont déjà appliquées."
+            )
+        self.score1, self.score2 = score1, score2
+
     def void(self, at: datetime) -> None:
         if self.is_final:
             raise InvalidMatchState("Le résultat de ce match est déjà validé.")

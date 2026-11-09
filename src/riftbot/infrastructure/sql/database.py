@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +20,14 @@ from sqlalchemy.ext.asyncio import (
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
+logger = logging.getLogger(__name__)
+
 
 def create_engine(url: str) -> AsyncEngine:
-    """Moteur async. Avec SQLite, crée le dossier du fichier et active les clés étrangères."""
+    """Moteur async. Avec SQLite, crée le dossier du fichier et applique les PRAGMA."""
     engine = create_async_engine(url)
     if ensure_sqlite_dir(url):
-        event.listen(engine.sync_engine, "connect", _enable_sqlite_foreign_keys)
+        event.listen(engine.sync_engine, "connect", _configure_sqlite)
     return engine
 
 
@@ -53,7 +57,25 @@ def ensure_sqlite_dir(url: str) -> bool:
     return True
 
 
-def _enable_sqlite_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
+def _configure_sqlite(dbapi_connection: Any, _record: Any) -> None:
+    """Réglages de chaque connexion SQLite.
+
+    - ``foreign_keys`` : SQLite ne les applique pas par défaut.
+    - ``journal_mode=WAL`` : une lecture ne bloque plus une écriture, et inversement.
+    - ``busy_timeout`` : une écriture patiente au lieu d'échouer immédiatement sur
+      « database is locked » quand deux interactions écrivent en même temps.
+
+    Le mode WAL est persistant dans le fichier ; le redemander est sans effet. S'il
+    échoue (base verrouillée au démarrage, système de fichiers qui ne le supporte
+    pas), on continue sans WAL : mieux vaut un bot qui démarre.
+    """
     cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError:
+            logger.warning("Impossible d'activer le mode WAL de SQLite", exc_info=True)
+    finally:
+        cursor.close()

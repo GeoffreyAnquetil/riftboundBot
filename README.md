@@ -45,6 +45,18 @@ serveur » (modifiable dans *Paramètres du serveur > Intégrations*).
    Les notes Glicko-2 sont ensuite mises à jour en une seule passe, puis le classement est
    publié.
 
+### Corriger un résultat
+
+Un admin peut corriger un score avec `/admin set-result` même après la clôture, **à
+condition que le vainqueur ne change pas** : les notes Glicko-2 ne dépendent que du
+vainqueur, pas du score, donc une correction du type `2-0` → `2-1` laisse le classement
+intact. Changer le vainqueur après la clôture demanderait de recalculer toute la semaine et
+n'est pas supporté en V1 : tranche le litige avant de clôturer.
+
+La correction porte sur la semaine affichée par `/matches` : la semaine en cours, ou à
+défaut la dernière clôturée. Dès qu'une nouvelle semaine est ouverte, la précédente n'est
+plus corrigeable.
+
 ## Classement et appariement
 
 - **Glicko-2** : chaque joueur a une note (`1500` au départ), une incertitude (`RD=350`) et une
@@ -102,6 +114,11 @@ uv run riftbot           # applique les migrations puis lance le bot
 ```bash
 docker compose up -d --build   # la base SQLite est stockée dans ./data
 ```
+
+Au premier démarrage, le conteneur corrige automatiquement les droits de `./data` (Docker
+le crée en root sur un hôte Linux) puis abandonne les privilèges root avant de lancer le
+bot. Si tu lances le conteneur toi-même avec `--user 1000:1000`, crée le dossier avec les
+bons droits : `mkdir -p data && sudo chown -R 1000:1000 data`.
 
 ### Redémarrages et limites Discord
 
