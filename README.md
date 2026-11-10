@@ -27,7 +27,9 @@ Bot Discord de ladder hebdomadaire pour le TCG Riftbound.
 | `/admin remove-player` | Retirer un joueur du ladder |
 
 Les commandes `/admin` sont réservées par défaut aux membres qui ont la permission « Gérer le
-serveur » (modifiable dans *Paramètres du serveur > Intégrations*).
+serveur » (modifiable dans *Paramètres du serveur > Intégrations*). Pour une liste blanche
+explicite, renseigne `ADMIN_USER_IDS` (identifiants Discord séparés par des virgules) : seuls
+ces utilisateurs pourront lancer les commandes `/admin`, même sans cette permission.
 
 ### Déroulement d'une semaine
 

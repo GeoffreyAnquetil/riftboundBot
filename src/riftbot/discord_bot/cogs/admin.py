@@ -26,9 +26,28 @@ from riftbot.domain.ladder.models import MatchStatus, Side
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_guild=True)
 class AdminCog(commands.GroupCog, group_name="admin", group_description="Gestion du ladder"):
-    def __init__(self, services: Services) -> None:
+    def __init__(
+        self,
+        services: Services,
+        *,
+        admin_user_ids: frozenset[int] = frozenset(),
+    ) -> None:
         super().__init__()
         self._ladder = services.ladder
+        self._admin_user_ids = admin_user_ids
+        if admin_user_ids:
+            # La liste blanche remplace la permission Discord : les commandes restent
+            # visibles pour que ces utilisateurs puissent les lancer même sans
+            # « Gérer le serveur ». L'accès est vérifié à chaque interaction.
+            group = self.__cog_app_commands_group__
+            if group is not None:
+                group.default_permissions = None
+
+    async def interaction_check(self, interaction: discord.Interaction[Any]) -> bool:
+        if self._admin_user_ids:
+            return interaction.user.id in self._admin_user_ids
+        permissions = getattr(interaction.user, "guild_permissions", None)
+        return bool(permissions is not None and permissions.manage_guild)
 
     @app_commands.command(
         name="week-open",

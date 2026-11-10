@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Salon unique autorisé pour les commandes du bot. Vide = aucun filtre.
     # Utile pour isoler un bot de test dans un seul salon.
     bot_channel_id: int | None = None
+    # Liste blanche des identifiants Discord autorisés à utiliser /admin, séparés par des
+    # virgules. Vide = uniquement les membres avec la permission « Gérer le serveur ».
+    admin_user_ids: str = ""
     database_url: str = "sqlite+aiosqlite:///data/riftbot.db"
 
     # --- Garde-fous de démarrage / redémarrage -----------------------------------------------
@@ -54,3 +57,16 @@ class Settings(BaseSettings):
     starting_balance: int = 1000
 
     log_level: str = "INFO"
+
+    @field_validator("admin_user_ids")
+    @classmethod
+    def _validate_admin_user_ids(cls, value: str) -> str:
+        for part in value.replace(",", " ").split():
+            if not part.isdigit():
+                raise ValueError(f"identifiant Discord invalide : {part!r}")
+        return value
+
+    @property
+    def admin_ids(self) -> frozenset[int]:
+        """Identifiants de la liste blanche, ou ensemble vide (permission Discord)."""
+        return frozenset(int(part) for part in self.admin_user_ids.replace(",", " ").split())

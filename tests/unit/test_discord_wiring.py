@@ -8,10 +8,12 @@ from unittest.mock import AsyncMock
 
 import discord
 import pytest
+from pydantic import ValidationError
 
 from riftbot.bootstrap import Services, build_services
 from riftbot.config import Settings
 from riftbot.discord_bot.bot import RiftBot
+from riftbot.discord_bot.cogs.admin import AdminCog
 from riftbot.discord_bot.cogs.ladder import LadderCog
 from riftbot.discord_bot.views.correction import (
     corrected_announcement,
@@ -171,3 +173,60 @@ async def test_corrected_announcement_mentions_both_players(
 
     assert f"<@{alice}>" in text
     assert f"<@{bob}>" in text
+
+
+def test_admin_ids_are_parsed() -> None:
+    settings = Settings(_env_file=None, admin_user_ids="123, 456 ,789")
+    assert settings.admin_ids == frozenset({123, 456, 789})
+    assert Settings(_env_file=None, admin_user_ids="").admin_ids == frozenset()
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, admin_user_ids="123,abc")
+
+
+async def test_admin_whitelist_controls_the_check(memory_services: Services) -> None:
+    bot = RiftBot(memory_services, admin_user_ids=frozenset({42}))
+    await bot.register_components()
+    try:
+        cog = bot.get_cog("AdminCog")
+        assert isinstance(cog, AdminCog)
+
+        allowed = SimpleNamespace(user=SimpleNamespace(id=42))
+        denied = SimpleNamespace(user=SimpleNamespace(id=7))
+        assert await cog.interaction_check(allowed) is True  # type: ignore[arg-type]
+        assert await cog.interaction_check(denied) is False  # type: ignore[arg-type]
+
+        admin = next(c for c in bot.tree.get_commands() if c.name == "admin")
+        # La liste blanche remplace la permission Discord : le groupe reste visible,
+        # l'accès étant filtré par interaction_check.
+        assert admin.to_dict(bot.tree)["default_member_permissions"] is None
+    finally:
+        ladder_cog = bot.get_cog("LadderCog")
+        assert isinstance(ladder_cog, LadderCog)
+        ladder_cog.auto_confirm.cancel()
+
+
+async def test_admin_check_falls_back_to_manage_guild(memory_services: Services) -> None:
+    bot = RiftBot(memory_services)
+    await bot.register_components()
+    try:
+        cog = bot.get_cog("AdminCog")
+        assert isinstance(cog, AdminCog)
+
+        manager = SimpleNamespace(
+            user=SimpleNamespace(id=1, guild_permissions=discord.Permissions(manage_guild=True))
+        )
+        member = SimpleNamespace(
+            user=SimpleNamespace(id=2, guild_permissions=discord.Permissions.none())
+        )
+        assert await cog.interaction_check(manager) is True  # type: ignore[arg-type]
+        assert await cog.interaction_check(member) is False  # type: ignore[arg-type]
+
+        admin = next(c for c in bot.tree.get_commands() if c.name == "admin")
+        assert admin.to_dict(bot.tree)["default_member_permissions"] == (
+            discord.Permissions(manage_guild=True).value
+        )
+    finally:
+        ladder_cog = bot.get_cog("LadderCog")
+        assert isinstance(ladder_cog, LadderCog)
+        ladder_cog.auto_confirm.cancel()

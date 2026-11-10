@@ -58,6 +58,7 @@ async def run(settings: Settings, token: str) -> None:
         dev_commands=settings.enable_dev_commands,
         enable_betting=settings.enable_betting,
         bot_channel_id=settings.bot_channel_id,
+        admin_user_ids=settings.admin_ids,
         sync_cache=settings.command_sync_cache,
         force_sync=settings.force_command_sync,
     )

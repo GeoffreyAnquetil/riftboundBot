@@ -1,7 +1,8 @@
 # Riftbot — Guide de l'admin
 
 Les commandes `/admin` sont réservées par défaut aux membres ayant la permission **Gérer le
-serveur** (modifiable dans *Paramètres du serveur > Intégrations*).
+serveur** (modifiable dans *Paramètres du serveur > Intégrations*). Si le propriétaire du bot a
+renseigné `ADMIN_USER_IDS`, seuls les identifiants de cette liste peuvent les utiliser.
 
 ## Le rythme d'une semaine
 

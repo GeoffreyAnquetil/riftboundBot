@@ -25,6 +25,7 @@ Guide court pour un serveur Wispbyte (panneau type Pterodactyl). Un seul bot par
    | `DEV_GUILD_ID` | vide en production |
    | `ENABLE_DEV_COMMANDS` | `false` |
    | `ENABLE_BETTING` | `false` |
+   | `ADMIN_USER_IDS` | vide = permission « Gérer le serveur » ; sinon IDs Discord séparés par des virgules |
 
    Les autres réglages ont des valeurs par défaut correctes (`DATABASE_URL`, `BEST_OF=3`,
    `PLACEMENT_MATCHES=4`, etc.).
@@ -38,23 +39,26 @@ Guide court pour un serveur Wispbyte (panneau type Pterodactyl). Un seul bot par
 
 ## Déploiement continu via GitHub
 
-C'est la méthode recommandée : Wispbyte clone le dépôt et fait un `git pull` à chaque
-démarrage.
+Wispbyte ne déclenche pas de déploiement à chaque `git push` : il fait un `git pull` au
+**démarrage** du serveur. Déployer une nouvelle version = pousser sur la branche, puis
+redémarrer le serveur.
 
 1. Pousse `main.py`, `requirements.txt` et le code sur la branche de déploiement (`main` par
    défaut, ou une branche dédiée).
-2. Dans Wispbyte : **GitHub Integration** → connecte le dépôt → choisis la branche → **Pull**.
-   Pour un dépôt privé, renseigne le token ou la clé sur cette page.
-3. **Startup** : garde la commande Python par défaut (elle enchaîne `git pull`, l'installation
-   de `requirements.txt`, puis le lancement) et règle :
-   - fichier de démarrage : `main.py` ;
-   - fichier de dépendances : `requirements.txt` ;
-   - `AUTO_UPDATE=1` si l'option est proposée.
-4. À chaque livraison : merge sur la branche, puis **Pull + Restart** (ou simple redémarrage
-   si `AUTO_UPDATE=1`).
+2. Ouvre le serveur → **GitHub** (barre latérale) → **GitHub Integration** :
+   - **Repository** : URL du dépôt et **branche** (`main`) ;
+   - **Authentication** : nom d'utilisateur GitHub + token personnel (dépôt privé seulement) ;
+   - **Options** : coche **Auto-update on startup**. Ne coche pas « skip install ».
+3. Clique **Clone** la première fois.
+4. **Startup** : image **Python 3.12**, fichier de démarrage `main.py`, fichier de
+   dépendances `requirements.txt`.
+5. À chaque livraison : merge sur la branche, puis **Restart** (ou **Pull** puis Restart).
+   Au démarrage : `git pull` → `pip install -r requirements.txt` → `python main.py`
+   (migrations Alembic puis bot).
 
-Au redémarrage : `git pull` → `pip install -r requirements.txt` → `python main.py`
-(migrations Alembic puis bot).
+> Il n'existe pas d'API publique Wispbyte pour redémarrer le serveur à distance : le
+> redémarrage après un push reste une action dans le panneau. Pense à redémarrer après
+> chaque merge (ou planifie un redémarrage si ton plan le permet).
 
 ### Règles
 
