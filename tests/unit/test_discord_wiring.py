@@ -75,6 +75,7 @@ async def test_all_commands_are_registered(memory_services: Services) -> None:
             "week-close",
             "set-result",
             "correct-result",
+            "refresh-ranks",
             "remove-player",
         }
         assert admin["default_member_permissions"] is not None

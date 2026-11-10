@@ -7,7 +7,8 @@ import pytest
 from riftbot.application.dto import ReportFingerprint, WeekClosing
 from riftbot.application.ladder_service import LadderService
 from riftbot.application.ports import UnitOfWorkFactory
-from riftbot.bootstrap import Services
+from riftbot.bootstrap import Services, build_services
+from riftbot.config import Settings
 from riftbot.domain.errors import (
     AlreadyRegistered,
     InvalidMatchState,
@@ -20,6 +21,7 @@ from riftbot.domain.errors import (
     WeekAlreadyOpen,
 )
 from riftbot.domain.ladder.models import MatchStatus, Player
+from riftbot.infrastructure.event_bus import LocalEventBus
 from tests.conftest import GUILD, FakeClock
 
 ALICE, BOB, CAROL, DAVE = 1, 2, 3, 4
@@ -165,6 +167,56 @@ async def test_ranked_players_appear_before_provisional_ones(services: Services)
     assert [entry.player.discord_id for entry in entries] == [BOB, ALICE, CAROL]
     assert [entry.provisional for entry in entries] == [False, False, True]
     assert entries[-1].player.rank == 3
+
+
+async def test_refresh_ranks_realigns_places(
+    services: Services, uow_factory: UnitOfWorkFactory
+) -> None:
+    """Après un changement de réglage, l'admin peut replacer tout le monde sans clôturer."""
+    ladder = services.ladder
+    await register_all(ladder, ALICE, BOB, CAROL)
+
+    async with uow_factory() as uow:
+        for discord_id, rating in ((ALICE, 1600.0), (BOB, 1700.0), (CAROL, 1800.0)):
+            player = await uow.players.get_by_discord_id(GUILD, discord_id)
+            assert player is not None
+            player.rating = rating
+            player.rated_matches = 4
+            await uow.players.update(player)
+        await uow.commit()
+
+    changed = await ladder.refresh_ranks(GUILD)
+
+    # Alice passe de 1 à 3, Carol de 3 à 1 ; Bob reste 2.
+    assert changed == 2
+    assert await ranking(ladder) == [CAROL, BOB, ALICE]
+
+
+async def test_refresh_ranks_uses_the_current_placement_threshold(
+    uow_factory: UnitOfWorkFactory, clock: FakeClock
+) -> None:
+    settings = Settings(_env_file=None, placement_matches=2)
+    ladder = build_services(settings, uow_factory, clock, LocalEventBus(raise_errors=True)).ladder
+    await register_all(ladder, ALICE, BOB, CAROL)
+
+    async with uow_factory() as uow:
+        for discord_id, rating, matches in (
+            (ALICE, 1600.0, 3),
+            (BOB, 1700.0, 1),
+            (CAROL, 1800.0, 3),
+        ):
+            player = await uow.players.get_by_discord_id(GUILD, discord_id)
+            assert player is not None
+            player.rating = rating
+            player.rated_matches = matches
+            await uow.players.update(player)
+        await uow.commit()
+
+    await ladder.refresh_ranks(GUILD)
+
+    entries = await ladder.leaderboard(GUILD)
+    assert [entry.player.discord_id for entry in entries] == [CAROL, ALICE, BOB]
+    assert [entry.provisional for entry in entries] == [False, False, True]
 
 
 async def test_register_mid_week_pairs_available_players(services: Services) -> None:

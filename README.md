@@ -22,6 +22,7 @@ Bot Discord de ladder hebdomadaire pour le TCG Riftbound.
 | `/profile [membre]` | Rang, note, bilan, statut, derniers matchs |
 | `/admin week-open` | Ouvrir une semaine et générer les matchs |
 | `/admin week-close` | Clôturer la semaine et mettre à jour les notes |
+| `/admin refresh-ranks` | Recalcule les places sans attendre la clôture |
 | `/admin set-result` | Trancher un litige, saisir un forfait |
 | `/admin correct-result` | Corriger un résultat de la semaine (listes déroulantes) |
 | `/admin remove-player` | Retirer un joueur du ladder |
@@ -64,7 +65,8 @@ appliquées. Tranche les litiges avant `/admin week-close`.
   volatilité. Une victoire contre un joueur mieux noté rapporte plus qu'une victoire attendue ;
   l'incertitude diminue avec les matchs et remonte après une absence.
 - **Placement** : les `PLACEMENT_MATCHES` premiers matchs (4 par défaut) servent à calibrer.
-  Un joueur en placement est affiché à part et n'occupe pas le classement principal.
+  Un joueur en placement est affiché à part et n'occupe pas le classement principal. Après
+  avoir changé ce réglage, `/admin refresh-ranks` réaligne immédiatement les places.
 - **Un match par semaine** : le service refuse deux matchs non annulés pour un même joueur
   dans la même semaine.
 - **Sans revanche** : l'appariement essaie d'abord d'éviter tout adversaire des

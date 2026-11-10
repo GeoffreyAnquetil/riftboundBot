@@ -532,6 +532,21 @@ class LadderService:
 
     # --- Notes et classement -----------------------------------------------------------------
 
+    async def refresh_ranks(self, guild_id: int) -> int:
+        """Réattribue les places selon les notes courantes.
+
+        Utile après avoir changé ``PLACEMENT_MATCHES`` : les joueurs qui deviennent
+        classés (ou repassent en placement) sont replacés sans attendre la clôture.
+        Renvoie le nombre de places modifiées.
+        """
+        async with self._guard(guild_id), self._uow() as uow:
+            players = await uow.players.list_active(guild_id)
+            before = {player.pk: player.rank for player in players}
+            await self._assign_ranks(uow, players)
+            changed = sum(1 for player in players if player.rank != before[player.pk])
+            await uow.commit()
+        return changed
+
     async def _rate_week(
         self,
         uow: UnitOfWork,

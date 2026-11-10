@@ -143,6 +143,17 @@ class AdminCog(commands.GroupCog, group_name="admin", group_description="Gestion
             ephemeral=True,
         )
 
+    @app_commands.command(
+        name="refresh-ranks",
+        description="Recalcule les places (après un changement de matchs de placement)",
+    )
+    async def refresh_ranks(self, interaction: discord.Interaction[Any]) -> None:
+        await interaction.response.defer(thinking=True)
+        changed = await self._ladder.refresh_ranks(guild_id(interaction))
+        await interaction.followup.send(
+            f"🔄 Classement recalculé : {changed} place(s) mise(s) à jour."
+        )
+
     @app_commands.command(name="remove-player", description="Retire un joueur du ladder")
     @app_commands.describe(member="Joueur à retirer")
     async def remove_player(

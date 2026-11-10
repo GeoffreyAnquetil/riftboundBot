@@ -19,6 +19,7 @@ import contextlib
 import logging
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import discord
 
@@ -95,6 +96,19 @@ def main() -> int:
     if not secret:
         logger.error("DISCORD_TOKEN manquant : copie .env.example en .env et renseigne-le.")
         return EXIT_CONFIG
+
+    # Affiche les réglages effectifs : sans cela, une variable absente du .env (ou lue
+    # depuis un autre dossier) ne se voit qu'en observant le comportement du bot.
+    env_path = Path(".env")
+    logger.info(
+        "Config : .env %s dans %s · placement=%d · revanche=%d/%d · inactif=%d",
+        "chargé" if env_path.is_file() else "absent",
+        Path.cwd(),
+        settings.placement_matches,
+        settings.rematch_preferred_weeks,
+        settings.rematch_hard_weeks,
+        settings.inactive_after_weeks,
+    )
 
     # Dernier rempart avant toute connexion Discord : si le processus redémarre
     # en boucle (crash, config cassée, sync refusée…), on arrête de contacter

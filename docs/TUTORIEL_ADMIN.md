@@ -22,6 +22,7 @@ renseigné `ADMIN_USER_IDS`, seuls les identifiants de cette liste peuvent les u
 |---|---|
 | `/admin week-open` | Ouvrir la semaine et générer les matchs |
 | `/admin week-close` | Clôturer la semaine et mettre à jour les notes |
+| `/admin refresh-ranks` | Recalculer les places sans attendre la clôture |
 | `/admin set-result` | Trancher un litige ou saisir un forfait (match, vainqueur, score) |
 | `/admin correct-result` | Corriger un résultat via deux listes déroulantes |
 | `/admin remove-player` | Retirer un joueur du ladder |
@@ -45,7 +46,8 @@ adversaire est réapparié avec un joueur libre si possible.
 - **Un seul match par joueur et par semaine.** Si l'effectif est impair, un joueur est
   exempt : l'exempt est indiqué dans `/matches`.
 - Les **4 premiers matchs** d'un joueur sont des matchs de placement : il n'entre dans le
-  classement principal qu'ensuite.
+  classement principal qu'ensuite. Après un changement de `PLACEMENT_MATCHES`,
+  `/admin refresh-ranks` replace tout le monde immédiatement.
 - `/matches` affiche l'état de chaque match : à jouer, en attente, litige, annulé.
 - `/admin week-open` mentionne tous les joueurs : préviens le serveur avant de lancer.
 - Si `BOT_CHANNEL_ID` est configuré, le bot ne répond que dans ce salon.
