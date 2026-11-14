@@ -70,6 +70,24 @@ redémarrer le serveur.
 - Retour arrière : choisis un autre commit/branche dans le panneau, ou revert sur GitHub puis
   Pull.
 
+## Blocage Cloudflare (HTTP 429)
+
+Un message `HTTP 429 sans en-tête Via` au démarrage ne vient pas de l'API Discord : c'est
+Cloudflare qui bloque l'adresse IP **partagée** du serveur Wispbyte (souvent après une boucle
+de redémarrages, mais parfois à cause d'un autre bot hébergé sur la même IP). Le token n'est
+pas en cause.
+
+- Le bot enregistre une pause de `LOGIN_COOLDOWN_SECONDS` (30 min par défaut) dans
+  `data/startup.json`. Pendant cette pause, chaque redémarrage sort proprement sans contacter
+  Discord : c'est voulu, cela évite de prolonger le blocage.
+- Ne redémarre pas manuellement en boucle et ne désactive pas la pause.
+- Si le message revient après plusieurs pauses d'affilée, le blocage est plus long que la
+  pause : augmente `LOGIN_COOLDOWN_SECONDS` (par exemple `3600`) et attends. Si cela persiste
+  plusieurs heures, contacte le support Wispbyte pour changer d'IP ; aucun réglage du bot ne
+  peut contourner un blocage d'IP.
+- Après la fin du blocage, supprimer `data/startup.json` force un démarrage immédiat (utile
+  pour tester), à condition que le blocage ait réellement expiré.
+
 ## Données et sauvegardes
 
 La base SQLite est dans `data/riftbot.db`, dans le dossier persistant du serveur. Télécharge
@@ -83,7 +101,8 @@ dossier `data/` entre deux démarrages.
 | `SyntaxError` ou message « Python 3.12 ou plus récent » | Mauvaise image : sélectionne Python 3.12 |
 | `ModuleNotFoundError: discord` | `requirements.txt` absent ou install non lancée : vérifie Startup |
 | `Token Discord refusé` | `DISCORD_TOKEN` absent ou invalide |
-| Le bot refuse de démarrer après plusieurs crashs | Garde-fou anti-boucle : supprime `data/startup.json` ou attends 10 min |
+| Le bot refuse de démarrer après plusieurs crashs | Garde-fou anti-boucle : supprime `data/startup.json` ou attends `STARTUP_WINDOW_SECONDS` |
+| `Discord bloque cette adresse IP (HTTP 429 sans en-tête Via…)` | Cloudflare bloque l'IP de l'hébergeur. Le bot attend `LOGIN_COOLDOWN_SECONDS` avant de réessayer : ne redémarre pas en boucle. Si le message revient pendant des heures, change d'IP (support Wispbyte). |
 | `Missing Main File` | Sélectionne `main.py` comme fichier de démarrage |
 
 Le panneau ne donne pas de shell : tout passe par **Startup** (image, fichier, paquets,

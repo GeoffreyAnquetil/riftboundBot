@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     startup_max_attempts: int = 5
     # Fenêtre glissante, en secondes. 0 désactive le garde-fou.
     startup_window_seconds: int = 600
+    # Pause imposée après un HTTP 429 renvoyé par Cloudflare (blocage d'IP).
+    # Pendant ce délai, un redémarrage sort immédiatement sans contacter
+    # Discord. 0 désactive la pause (déconseillé).
+    login_cooldown_seconds: int = 1800
+    # Tentatives de connexion dans le même processus sur une erreur transitoire
+    # (HTTP 5xx). 1 désactive les nouvelles tentatives.
+    login_max_attempts: int = 3
+    # Délai initial avant une nouvelle tentative, en secondes. Il double à
+    # chaque échec, sans dépasser login_max_retry_delay_seconds.
+    login_retry_delay_seconds: float = 10.0
+    login_max_retry_delay_seconds: float = 120.0
     # Empreinte des commandes déjà synchronisées : si elle n'a pas changé, on
     # évite un nouvel appel d'enregistrement à chaque redémarrage.
     command_sync_cache: Path = Path("data/command_sync.sha256")

@@ -138,6 +138,19 @@ contacter Discord après `STARTUP_MAX_ATTEMPTS` démarrages en
 serveur de dev introuvable, base inaccessible) ne se transforme en flux de
 connexions et en blocage Cloudflare/IP.
 
+Un `HTTP 429` sans en-tête `Via` ne vient pas de l'API Discord mais de
+Cloudflare, qui bloque l'adresse IP de l'hébergeur. Le bot enregistre alors une
+pause (`LOGIN_COOLDOWN_SECONDS`, 30 min par défaut) dans `data/startup.json` :
+les redémarrages suivants sortent immédiatement, sans contacter Discord, jusqu'à
+la fin de la pause. Insister pendant un blocage ne fait que le prolonger. Si le
+blocage dure plusieurs heures, il faut changer d'adresse IP (ou demander à
+l'hébergeur) : le code ne peut pas le contourner.
+
+Les erreurs transitoires de l'API (`5xx`) sont, elles, réessayées dans le même
+processus (`LOGIN_MAX_ATTEMPTS`, délai doublé à chaque échec) avant de rendre la
+main au superviseur.
+
+
 La synchronisation des commandes est ignorée quand leur empreinte n'a pas changé
 (`data/command_sync.sha256`). Après une suppression manuelle des commandes dans
 Discord, lancer une fois avec `FORCE_COMMAND_SYNC=true`.
