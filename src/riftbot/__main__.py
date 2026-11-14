@@ -93,6 +93,40 @@ def is_cloudflare_block(error: BaseException) -> bool:
     return not headers.get("Via")
 
 
+def retry_after_seconds(error: discord.HTTPException) -> float | None:
+    """Durée demandée par Cloudflare dans ``Retry-After``, si elle est lisible.
+
+    Cloudflare indique parfois explicitement combien de temps l'IP restera
+    bloquée (observé : plus de 18 h). La respecter évite des dizaines de
+    tentatives inutiles pendant le blocage.
+    """
+    headers = getattr(error.response, "headers", None) or {}
+    raw = headers.get("Retry-After")
+    if not isinstance(raw, str):
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        return None
+    return seconds if seconds > 0 else None
+
+
+def cloudflare_cooldown(
+    error: discord.HTTPException, configured: float, maximum: float
+) -> timedelta:
+    """Pause à appliquer après un blocage : la plus longue des deux durées.
+
+    On prend le maximum entre la valeur configurée et ``Retry-After`` (plafonné
+    par ``maximum``) : si Cloudflare annonce 18 h, inutile de réessayer toutes
+    les 30 min. ``configured`` à 0 n'annule pas une demande de Cloudflare.
+    """
+    requested = retry_after_seconds(error)
+    delay = max(0.0, configured)
+    if requested is not None:
+        delay = max(delay, min(requested, max(0.0, maximum)))
+    return timedelta(seconds=delay)
+
+
 def is_retryable_startup_error(error: BaseException) -> bool:
     """Vrai si relancer la connexion dans le même processus a un sens.
 
@@ -289,24 +323,34 @@ def main() -> int:
                 describe_http_error(exc),
             )
         elif is_cloudflare_block(exc):
-            cooldown = timedelta(seconds=max(0, settings.login_cooldown_seconds))
+            cooldown = cloudflare_cooldown(
+                exc,
+                configured=settings.login_cooldown_seconds,
+                maximum=settings.login_max_cooldown_seconds,
+            )
             guard.start_cooldown(datetime.now(UTC), cooldown)
+            requested = retry_after_seconds(exc)
+            source = ""
+            if requested is not None:
+                human = format_delay(timedelta(seconds=requested))
+                source = f" (Retry-After demandé par Cloudflare : {human})"
             if cooldown > timedelta(0):
                 logger.error(
                     "Discord bloque cette adresse IP (HTTP 429 sans en-tête Via : réponse "
                     "Cloudflare). Ce n'est pas une limite de débit de l'API mais un blocage "
                     "réseau, souvent causé par des redémarrages en boucle. Le bot ne "
-                    "contactera plus Discord pendant %s ; les redémarrages de l'hébergeur "
+                    "contactera plus Discord pendant %s%s ; les redémarrages de l'hébergeur "
                     "pendant cette pause seront ignorés. Si le blocage dure, change "
                     "d'adresse IP (ou demande à l'hébergeur) : insister ne sert à rien. "
                     "Détails : %s",
                     format_delay(cooldown),
+                    source,
                     describe_http_error(exc),
                 )
             else:
                 logger.error(
                     "Discord bloque cette adresse IP (HTTP 429 sans en-tête Via : réponse "
-                    "Cloudflare). LOGIN_COOLDOWN_SECONDS=0 désactive la pause : les "
+                    "Cloudflare). LOGIN_COOLDOWN_SECONDS=0 et aucun Retry-After : les "
                     "redémarrages vont donc réessayer immédiatement, ce qui peut prolonger "
                     "le blocage. Change d'adresse IP ou attends qu'il expire. Détails : %s",
                     describe_http_error(exc),

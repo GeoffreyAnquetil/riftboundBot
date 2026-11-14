@@ -140,11 +140,13 @@ connexions et en blocage Cloudflare/IP.
 
 Un `HTTP 429` sans en-tête `Via` ne vient pas de l'API Discord mais de
 Cloudflare, qui bloque l'adresse IP de l'hébergeur. Le bot enregistre alors une
-pause (`LOGIN_COOLDOWN_SECONDS`, 30 min par défaut) dans `data/startup.json` :
-les redémarrages suivants sortent immédiatement, sans contacter Discord, jusqu'à
-la fin de la pause. Insister pendant un blocage ne fait que le prolonger. Si le
-blocage dure plusieurs heures, il faut changer d'adresse IP (ou demander à
-l'hébergeur) : le code ne peut pas le contourner.
+pause dans `data/startup.json` : les redémarrages suivants sortent immédiatement,
+sans contacter Discord, jusqu'à la fin de la pause. La durée est la plus longue
+entre `LOGIN_COOLDOWN_SECONDS` (30 min par défaut) et l'en-tête `Retry-After`
+renvoyé par Cloudflare (souvent plusieurs heures), plafonnée par
+`LOGIN_MAX_COOLDOWN_SECONDS` (24 h par défaut). Insister pendant un blocage ne
+fait que le prolonger. Si le blocage dure plusieurs jours, il faut changer
+d'adresse IP (ou demander à l'hébergeur) : le code ne peut pas le contourner.
 
 Les erreurs transitoires de l'API (`5xx`) sont, elles, réessayées dans le même
 processus (`LOGIN_MAX_ATTEMPTS`, délai doublé à chaque échec) avant de rendre la

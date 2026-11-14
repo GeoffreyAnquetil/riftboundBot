@@ -46,11 +46,15 @@ class DiscordCooldownActive(StartupLoopDetected):
 
 
 def format_delay(delay: timedelta) -> str:
-    """Durée lisible dans les logs (« 90 s », « 30 min »)."""
+    """Durée lisible dans les logs (« 90 s », « 30 min », « 18 h 06 min »)."""
     seconds = max(0, round(delay.total_seconds()))
     if seconds < 90:
         return f"{seconds} s"
-    return f"{round(seconds / 60)} min"
+    minutes = round(seconds / 60)
+    if minutes < 90:
+        return f"{minutes} min"
+    hours, remaining = divmod(seconds, 3600)
+    return f"{hours} h {remaining // 60:02d} min"
 
 
 @dataclass(frozen=True)

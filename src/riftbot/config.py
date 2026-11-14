@@ -33,8 +33,11 @@ class Settings(BaseSettings):
     startup_window_seconds: int = 600
     # Pause imposée après un HTTP 429 renvoyé par Cloudflare (blocage d'IP).
     # Pendant ce délai, un redémarrage sort immédiatement sans contacter
-    # Discord. 0 désactive la pause (déconseillé).
+    # Discord. Si Cloudflare annonce une durée plus longue dans Retry-After,
+    # c'est elle qui s'applique. 0 désactive la pause (déconseillé).
     login_cooldown_seconds: int = 1800
+    # Plafond de la pause, même si Cloudflare demande davantage (secondes).
+    login_max_cooldown_seconds: int = 86400
     # Tentatives de connexion dans le même processus sur une erreur transitoire
     # (HTTP 5xx). 1 désactive les nouvelles tentatives.
     login_max_attempts: int = 3

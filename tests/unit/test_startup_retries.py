@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from types import SimpleNamespace
 
 import discord
 import pytest
 
 from riftbot.__main__ import (
+    cloudflare_cooldown,
     describe_http_error,
     is_cloudflare_block,
     is_retryable_startup_error,
+    retry_after_seconds,
     start_with_retries,
 )
 
@@ -105,6 +108,35 @@ def test_global_rate_limit_scope_is_reported() -> None:
     assert "Via=oui" in details
     assert "scope=global" in details
     assert "Retry-After=1.2" in details
+
+
+async def test_retry_after_is_read_from_cloudflare() -> None:
+    assert retry_after_seconds(http_error(429, {"Retry-After": "65191"})) == 65191
+    assert retry_after_seconds(http_error(429, {"Retry-After": "invalide"})) is None
+    assert retry_after_seconds(http_error(429)) is None
+
+
+def test_cooldown_never_shortens_cloudflare_request() -> None:
+    # Observé en production : Cloudflare demande 18 h, la config 30 min.
+    long_block = http_error(429, {"Retry-After": "65191"})
+
+    cooldown = cloudflare_cooldown(long_block, configured=1800, maximum=86400)
+
+    assert cooldown == timedelta(seconds=65191)
+
+
+def test_cooldown_is_capped_by_the_maximum() -> None:
+    very_long = http_error(429, {"Retry-After": "2000000"})
+
+    assert cloudflare_cooldown(very_long, configured=0, maximum=86400) == timedelta(hours=24)
+
+
+def test_cooldown_falls_back_on_the_configured_delay() -> None:
+    no_header = http_error(429)
+
+    assert cloudflare_cooldown(no_header, configured=1800, maximum=86400) == timedelta(minutes=30)
+    # Une configuration à 0 laisse Cloudflare décider (ou 0 si rien n'est annoncé).
+    assert cloudflare_cooldown(no_header, configured=0, maximum=86400) == timedelta(0)
 
 
 async def test_transient_error_is_retried_with_a_growing_delay() -> None:
