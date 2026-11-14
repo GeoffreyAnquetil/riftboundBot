@@ -6,15 +6,18 @@ import discord
 import pytest
 
 from riftbot.__main__ import (
+    describe_http_error,
     is_cloudflare_block,
     is_retryable_startup_error,
     start_with_retries,
 )
 
 
-def http_error(status: int, headers: dict[str, str] | None = None) -> discord.HTTPException:
+def http_error(
+    status: int, headers: dict[str, str] | None = None, body: str = ""
+) -> discord.HTTPException:
     response = SimpleNamespace(status=status, reason="test", headers=headers or {})
-    return discord.HTTPException(response, {"message": "test", "code": 0})
+    return discord.HTTPException(response, body or {"message": "test", "code": 0})
 
 
 class FakeBot:
@@ -69,6 +72,39 @@ def test_only_server_errors_and_api_rate_limits_are_retried() -> None:
     # Un 429 sans Via est un blocage Cloudflare : insister l'aggrave.
     assert is_retryable_startup_error(http_error(429)) is False
     assert is_retryable_startup_error(discord.LoginFailure("bad token")) is False
+
+
+def test_cloudflare_body_and_headers_are_reported() -> None:
+    error = http_error(
+        429,
+        {"Content-Type": "text/html"},
+        "<!DOCTYPE html><html><body>Error 1015: The owner of this website "
+        "(discord.com) has banned you temporarily</body></html>",
+    )
+
+    details = describe_http_error(error)
+
+    assert "Via=non" in details
+    assert "Error 1015" in details
+    assert "text/html" in details
+
+
+def test_global_rate_limit_scope_is_reported() -> None:
+    error = http_error(
+        429,
+        {
+            "Via": "1.1 google",
+            "X-RateLimit-Scope": "global",
+            "Content-Type": "application/json",
+            "Retry-After": "1.2",
+        },
+    )
+
+    details = describe_http_error(error)
+
+    assert "Via=oui" in details
+    assert "scope=global" in details
+    assert "Retry-After=1.2" in details
 
 
 async def test_transient_error_is_retried_with_a_growing_delay() -> None:

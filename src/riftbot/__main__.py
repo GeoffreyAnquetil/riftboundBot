@@ -26,6 +26,7 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import TracebackType
 from typing import Protocol
 
@@ -151,6 +152,31 @@ def describe_startup_error(error: BaseException) -> str:
     return type(error).__name__
 
 
+def describe_http_error(error: discord.HTTPException) -> str:
+    """Détails d'une réponse HTTP, pour distinguer les deux types de 429.
+
+    Une limite de débit de l'API Discord renvoie du JSON avec
+    ``X-RateLimit-Scope`` et ``retry_after`` : discord.py l'absorbe seul. Un
+    blocage Cloudflare renvoie du HTML sans en-tête ``Via``. Ces détails
+    permettent de trancher dans les logs sans deviner.
+    """
+    headers = getattr(error.response, "headers", None) or {}
+    details = [f"Via={'oui' if headers.get('Via') else 'non'}"]
+    scope = headers.get("X-RateLimit-Scope")
+    if scope:
+        details.append(f"scope={scope}")
+    retry_after = headers.get("Retry-After")
+    if retry_after:
+        details.append(f"Retry-After={retry_after}")
+    content_type = headers.get("Content-Type")
+    if content_type:
+        details.append(f"Content-Type={content_type}")
+    body = " ".join((error.text or "").split())[:180]
+    if body:
+        details.append(f"corps={body!r}")
+    return " · ".join(details)
+
+
 def make_bot(settings: Settings, services: Services) -> RiftBot:
     """Construit le bot Discord à partir de la configuration."""
     return RiftBot(
@@ -205,6 +231,19 @@ def main() -> int:
         logger.error("DISCORD_TOKEN manquant : copie .env.example en .env et renseigne-le.")
         return EXIT_CONFIG
 
+    # Affiche les réglages effectifs : sans cela, une variable absente du .env (ou lue
+    # depuis un autre dossier) ne se voit qu'en observant le comportement du bot.
+    env_path = Path(".env")
+    logger.info(
+        "Config : .env %s dans %s · placement=%d · revanche=%d/%d · inactif=%d",
+        "chargé" if env_path.is_file() else "absent",
+        Path.cwd(),
+        settings.placement_matches,
+        settings.rematch_preferred_weeks,
+        settings.rematch_hard_weeks,
+        settings.inactive_after_weeks,
+    )
+
     # Dernier rempart avant toute connexion Discord : si le processus redémarre
     # en boucle (crash, config cassée, sync refusée…) ou si Cloudflare vient de
     # bloquer l'IP, on arrête de contacter Discord pour éviter d'aggraver la
@@ -245,8 +284,9 @@ def main() -> int:
         if code == EXIT_CONFIG:
             logger.error(
                 "Discord a refusé le démarrage (HTTP %s) : vérifie le token, "
-                "les scopes et l'ID du serveur de dev.",
+                "les scopes et l'ID du serveur de dev. Détails : %s",
                 exc.status,
+                describe_http_error(exc),
             )
         elif is_cloudflare_block(exc):
             cooldown = timedelta(seconds=max(0, settings.login_cooldown_seconds))
@@ -258,21 +298,25 @@ def main() -> int:
                     "réseau, souvent causé par des redémarrages en boucle. Le bot ne "
                     "contactera plus Discord pendant %s ; les redémarrages de l'hébergeur "
                     "pendant cette pause seront ignorés. Si le blocage dure, change "
-                    "d'adresse IP (ou demande à l'hébergeur) : insister ne sert à rien.",
+                    "d'adresse IP (ou demande à l'hébergeur) : insister ne sert à rien. "
+                    "Détails : %s",
                     format_delay(cooldown),
+                    describe_http_error(exc),
                 )
             else:
                 logger.error(
                     "Discord bloque cette adresse IP (HTTP 429 sans en-tête Via : réponse "
                     "Cloudflare). LOGIN_COOLDOWN_SECONDS=0 désactive la pause : les "
                     "redémarrages vont donc réessayer immédiatement, ce qui peut prolonger "
-                    "le blocage. Change d'adresse IP ou attends qu'il expire."
+                    "le blocage. Change d'adresse IP ou attends qu'il expire. Détails : %s",
+                    describe_http_error(exc),
                 )
         else:
             logger.warning(
                 "Discord est temporairement indisponible (HTTP %s) ; "
-                "le superviseur pourra réessayer avec un délai.",
+                "le superviseur pourra réessayer avec un délai. Détails : %s",
                 exc.status,
+                describe_http_error(exc),
             )
         return code
     except Exception:
